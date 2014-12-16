@@ -9,7 +9,7 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 #  General Public License for more details.
 #
-# (c) Sam Burden, UC Berkeley, 2013 
+# (c) Sam Burden, UC Berkeley, 2013
 
 import numpy as np
 import pylab as plt
@@ -33,17 +33,17 @@ mpl.rc('font', **font)
 
 
 np.set_printoptions(precision=2)
-	
+
 class LLS(hds.HDS):
   def __init__(self,dt=1./500):
     """
     LLS  LLS hybrid system
     """
     super(LLS, self).__init__(dt=dt)
-    
+
     self.name = 'LLS'
     self.accel = lambda t,x,q : np.zeros((x.shape[0],3))
-      
+
   def P(self, q=[1,0.0025,2.04e-7,0.017,0.53,-0.002,np.pi/4,0.,0.], debug=False):
     """
     Parameters:
@@ -93,7 +93,7 @@ class LLS(hds.HDS):
     dx = [dx, dy, dtheta,
           -dV*(x + d*np.sin(theta) - fx)/(m*eta) + acc[0],
           -dV*(y + d*np.cos(theta) - fy)/(m*eta) + acc[1],
-          -dV*d*((x - fx)*np.cos(theta) 
+          -dV*d*((x - fx)*np.cos(theta)
                - (y - fy)*np.sin(theta))/(I*eta) + acc[2]]
     # return vector field
     return dx
@@ -118,7 +118,7 @@ class LLS(hds.HDS):
       # foot
       fx = fx*ones
       fy = fy*ones
-      # discrete mode 
+      # discrete mode
       q = q*ones
       # foot, COM, hip
       f = np.array([fx,fy])
@@ -177,7 +177,7 @@ class LLS(hds.HDS):
     # left foot is right of body axis OR right foot is left of body axis
     if ( ( fb[0] > 0 ) and ( q == 0 ) ) or ( ( fb[0] < 0 ) and ( q == 1 ) ):
       q=-1
-    else:	
+    else:
       # switch stance foot
       q = np.mod(q + 1,2)
       # COM, hip
@@ -194,14 +194,14 @@ class LLS(hds.HDS):
       dc = np.array([dx,dy])
       # hip vel
       dh = dc + d*dtheta*np.array([np.cos(theta),-np.sin(theta)])
-      # hip vel in body frame 
+      # hip vel in body frame
       dhb=[dh[0]*np.cos(-theta)  + dh[1]*np.sin(-theta),
            dh[0]*-np.sin(-theta) + dh[1]*np.cos(-theta)]
       # foot in body frame
       fh=f-h
       fb=[fh[0]*np.cos(-theta)  + fh[1]*np.sin(-theta),
           fh[0]*-np.sin(-theta) + fh[1]*np.cos(-theta)]
-      # leg will instantaneously extend 
+      # leg will instantaneously extend
       if np.dot(fb, dhb) < 0:
         q=-1
     # pack state, params
@@ -265,7 +265,7 @@ class LLS(hds.HDS):
       T = [np.array([t0])]
       X = [np.array(x0)]
       Q = [np.array(q0)]
-      
+
     else:
       self(t0,tf,x0,q0,np.inf,clean=True)
 
@@ -347,7 +347,7 @@ class LLS(hds.HDS):
     xe = np.vstack(o.x[::2])
     ye = np.vstack(o.y[::2])
     thetae = np.vstack(o.theta[::2])
- 
+
     z = np.array([v[-1],delta[-1],theta[-1],dtheta[-1]])
 
     def zigzag(a=.2,b=.6,c=.2,p=4,N=100):
@@ -422,7 +422,7 @@ class LLS(hds.HDS):
     PE     = np.vstack(o.PE)
     KE     = np.vstack(o.KE)
     E      = np.vstack(o.E)
-    acc    = np.vstack(o.acc) * cvt['acc'] 
+    acc    = np.vstack(o.acc) * cvt['acc']
 
     qe      = np.vstack(o.q[::2])
     te      = np.hstack(o.t[::2]) * 1000
@@ -445,7 +445,7 @@ class LLS(hds.HDS):
         ax.fill([te[k],te[k],te[k+1],te[k+1]],
                 [ylim[1],ylim[0],ylim[0],ylim[1]],
                 fc=color,alpha=.35,ec='none',zorder=-1)
- 
+
     fig = plt.figure(fign)
     if clf:
       plt.clf()
@@ -632,4 +632,4 @@ if __name__ == "__main__":
           v=v,delta=delta,omega=omega,
           x0=x0,q0=q0,
           T=np.diff([tt[0] for tt in t[::2]]).mean())
-
+          #testing
