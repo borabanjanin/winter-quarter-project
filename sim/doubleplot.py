@@ -9,7 +9,7 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 #  General Public License for more details.
 #
-# (c) Bora Banjanin, U of Washington, 2014
+# (c) Sam Burden, UC Berkeley, 2014
 
 import numpy as np
 import pylab as plt
@@ -28,6 +28,11 @@ class DoublePlot():
     """
     r = 1.01
 
+    '''
+    Class Variables
+    '''
+    plotNum = 1
+
     def __init__(self):
         self.x = None
         self.y = None
@@ -41,15 +46,114 @@ class DoublePlot():
         self.t = None
         self.index = 0
 
+    @staticmethod
+    def plotNumberInc(n=1):
+        '''
+        .plotNumberInc returns the current figure number and increments
+        by default
+
+        INPUTS:
+          n - 1 x 1
+            The size of the increment is by default 1
+        '''
+        value = DoublePlot.plotNum
+        DoublePlot.plotNum += n
+        return value
+
+
     def hasNext(self):
+        '''
+        .hasNext returns whether the iterator has another data point
+
+        OUTPUTS:
+            Boolean
+        '''
         if self.index >= 0 \
         and self.index < len(self.x)-1:
             return True
         else:
             return False
 
-    def animIterable(self,i=None):
+    @staticmethod
+    def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
+        theta = 2*np.pi/(N-1)*np.arange(N)
+        xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
+        ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
+        return xs, ys
 
+    def animGenerate(self, o=None, dt=1e-3):
+        """
+        .animGenerate  generates animation figure and data
+
+        INPUTS:
+            o - Obs - trajectory to animate
+            dt - time step
+        """
+        if o is None:
+            o = self.obs().resample(dt)
+
+        self.t = np.hstack(o.t)
+        self.x = np.vstack(o.x)
+        self.y = np.vstack(o.y)
+        self.fx = np.vstack(o.fx)
+        self.fy = np.vstack(o.fy)
+        v = np.vstack(o.v)
+        delta = np.vstack(o.delta)
+        self.theta = np.vstack(o.theta)
+        dtheta = np.vstack(o.dtheta)
+        PE = np.vstack(o.PE)
+        KE = np.vstack(o.KE)
+        E = np.vstack(o.E)
+
+        te = np.hstack(o.t[::2])
+        xe = np.vstack(o.x[::2])
+        ye = np.vstack(o.y[::2])
+        thetae = np.vstack(o.theta[::2])
+
+        z = np.array([v[-1],delta[-1],self.theta[-1],dtheta[-1]])
+
+        r = 1.01
+
+        mx,Mx,dx = (self.x.min(),self.x.max(),self.x.max()-self.x.min())
+        my,My,dy = (self.y.min(),self.y.max(),self.y.max()-self.y.min())
+        dd = 5*r
+
+        self.fig = plt.figure(DoublePlot.plotNumberInc(),figsize=(5*(Mx-mx+2*dd)/(My-my+2*dd),5))
+        plt.clf()
+        ax = self.fig.add_subplot(111,aspect='equal')
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        self.Lcom, = ax.plot(self.x[0], self.y[0], 'b.', ms=10.)
+        self.Ecom, = ax.plot(*DoublePlot.Ellipse((self.x[0],self.y[0]), (r, 0.5*r), t=self.theta[0]))
+        self.Ecom.set_linewidth(4.0)
+        self.Lft,  = ax.plot([self.x[0],self.fx[0]],[self.y[0],self.fy[0]],'g.-',lw=4.)
+
+        ax.set_xlim((mx-dd,Mx+dd))
+        ax.set_ylim((my-dd,My+dd))
+
+        '''
+        dp.x = x
+        dp.y = y
+        dp.theta = theta
+        dp.fx = fx
+        dp.fy = fy
+        dp.fig = fig
+        dp.Lcom = Lcom
+        dp.Lft = Lft
+        dp.Ecom = Ecom
+        dp.t = t
+        return dp
+        '''
+
+
+    def animIterable(self,i=None):
+        """
+        .animIterable  animates trajectory one point at a time
+
+        INPUTS:
+            i - index to animate
+        """
         if self.x == None \
         or self.y == None \
         or self.theta == None \
@@ -71,17 +175,11 @@ class DoublePlot():
             raise Exception("DoublePlot: Invalid index state")
         #print self.index
 
-        def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
-            theta = 2*np.pi/(N-1)*np.arange(N)
-            xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
-            ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
-            return xs, ys
-
         self.Lcom.set_xdata(self.x[i])
         self.Lcom.set_ydata(self.y[i])
         self.Lft.set_xdata([self.x[i],self.fx[i]])
         self.Lft.set_ydata([self.y[i],self.fy[i]])
-        Ex,Ey = Ellipse((self.x[i],self.y[i]), (0.5*self.r, self.r), t=self.theta[i])
+        Ex,Ey = DoublePlot.Ellipse((self.x[i],self.y[i]), (0.5*self.r, self.r), t=self.theta[i])
         self.Ecom.set_xdata(Ex)
         self.Ecom.set_ydata(Ey)
         self.fig.canvas.draw()

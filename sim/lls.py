@@ -37,10 +37,6 @@ mpl.rc('font', **font)
 np.set_printoptions(precision=2)
 
 class LLS(hds.HDS):
-  '''
-  Class Variables
-  '''
-  plotNum = 1
 
   def __init__(self,dt=1./500):
     """
@@ -326,19 +322,7 @@ class LLS(hds.HDS):
 
     return self.step(z, q)
 
-  @staticmethod
-  def plotNumberInc(n=1):
-    '''
-    .anim returns the current figure number and increments
-
-    INPUTS
-      n - 1 x 1
-        The size of the increment by default 1
-    '''
-    value = LLS.plotNum
-    LLS.plotNum += n
-    return value
-
+  '''
   def animGenerate(self, o=None, dt=1e-3):
     """
     .anim  animate trajectory
@@ -404,18 +388,6 @@ class LLS(hds.HDS):
     ax.set_xlim((mx-dd,Mx+dd))
     ax.set_ylim((my-dd,My+dd))
 
-    '''
-    for k in range(x.size):
-
-        Lcom.set_xdata(x[k])
-        Lcom.set_ydata(y[k])
-        Lft.set_xdata([x[k],fx[k]])
-        Lft.set_ydata([y[k],fy[k]])
-        Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
-        Ecom.set_xdata(Ex)
-        Ecom.set_ydata(Ey)
-        fig.canvas.draw()
-    '''
     dp.x = x
     dp.y = y
     dp.theta = theta
@@ -427,6 +399,7 @@ class LLS(hds.HDS):
     dp.Ecom = Ecom
     dp.t = t
     return dp
+    '''
 
   def animate(fig=None,data=None):
     if fig == None or data == None:
@@ -700,8 +673,11 @@ if __name__ == "__main__":
     o1 = lls1.obs().resample(dt1)
     o2 = lls2.obs().resample(dt2)
     if 'anim' in args:
-        plot1 = lls1.animGenerate(o1)
-        plot2 = lls2.animGenerate(o2)
+        plot1 = DoublePlot()
+        plot2 = DoublePlot()
+        plot1.animGenerate(o1)
+        plot2.animGenerate(o2)
+        DoublePlot.plotNum = 1
 
   KE1 = np.vstack(o1.KE)
   KE2 = np.vstack(o2.KE)
