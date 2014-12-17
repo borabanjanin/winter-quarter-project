@@ -132,20 +132,6 @@ class DoublePlot():
         ax.set_xlim((mx-dd,Mx+dd))
         ax.set_ylim((my-dd,My+dd))
 
-        '''
-        dp.x = x
-        dp.y = y
-        dp.theta = theta
-        dp.fx = fx
-        dp.fy = fy
-        dp.fig = fig
-        dp.Lcom = Lcom
-        dp.Lft = Lft
-        dp.Ecom = Ecom
-        dp.t = t
-        return dp
-        '''
-
 
     def animIterable(self,i=None):
         """

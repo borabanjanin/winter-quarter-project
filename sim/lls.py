@@ -688,10 +688,10 @@ if __name__ == "__main__":
   for i in range(len(KE1)):
     testEnergy += ((KE1[i] - KE2[i]) + (PE1[i] - PE2[i]))
 
-  print "Energy difference between the models: " + str(testEnergy)
+  print "Energy difference between the models: " + str(testEnergy/len(KE1))
 
   '''
-   Run for the shorter simulation
+   Run for while both lls models have additional data points
   '''
   while(plot1.hasNext() and plot2.hasNext()):
     plot1.animIterable()
