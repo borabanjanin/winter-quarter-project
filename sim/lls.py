@@ -11,6 +11,7 @@
 #
 # (c) Sam Burden, UC Berkeley, 2013
 
+
 import numpy as np
 import pylab as plt
 import matplotlib as mpl
@@ -24,6 +25,7 @@ from opt import opt
 
 from util import Struct
 from util import num
+from doubleplot import DoublePlot
 
 font = {'family' : 'sans-serif',
         'size'   : 18}
@@ -35,6 +37,11 @@ mpl.rc('font', **font)
 np.set_printoptions(precision=2)
 
 class LLS(hds.HDS):
+  '''
+  Class Variables
+  '''
+  plotNum = 1
+
   def __init__(self,dt=1./500):
     """
     LLS  LLS hybrid system
@@ -43,6 +50,7 @@ class LLS(hds.HDS):
 
     self.name = 'LLS'
     self.accel = lambda t,x,q : np.zeros((x.shape[0],3))
+
 
   def P(self, q=[1,0.0025,2.04e-7,0.017,0.53,-0.002,np.pi/4,0.,0.], debug=False):
     """
@@ -318,7 +326,20 @@ class LLS(hds.HDS):
 
     return self.step(z, q)
 
-  def anim(self, o=None, dt=1e-3, fign=1):
+  @staticmethod
+  def plotNumberInc(n=1):
+    '''
+    .anim returns the current figure number and increments
+
+    INPUTS
+      n - 1 x 1
+        The size of the increment by default 1
+    '''
+    value = LLS.plotNum
+    LLS.plotNum += n
+    return value
+
+  def animGenerate(self, o=None, dt=1e-3):
     """
     .anim  animate trajectory
 
@@ -330,6 +351,7 @@ class LLS(hds.HDS):
     if o is None:
       o = self.obs().resample(dt)
 
+    dp = DoublePlot()
     t = np.hstack(o.t)
     x = np.vstack(o.x)
     y = np.vstack(o.y)
@@ -357,10 +379,10 @@ class LLS(hds.HDS):
       return np.vstack((x,y))
 
     def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
-      theta = 2*np.pi/(N-1)*np.arange(N)
-      xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
-      ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
-      return xs, ys
+        theta = 2*np.pi/(N-1)*np.arange(N)
+        xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
+        ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
+        return xs, ys
 
     r = 1.01
 
@@ -368,7 +390,7 @@ class LLS(hds.HDS):
     my,My,dy = (y.min(),y.max(),y.max()-y.min())
     dd = 5*r
 
-    fig = plt.figure(fign,figsize=(5*(Mx-mx+2*dd)/(My-my+2*dd),5))
+    fig = plt.figure(LLS.plotNumberInc(),figsize=(5*(Mx-mx+2*dd)/(My-my+2*dd),5))
     plt.clf()
     ax = fig.add_subplot(111,aspect='equal')
     ax.set_xticks([])
@@ -382,6 +404,7 @@ class LLS(hds.HDS):
     ax.set_xlim((mx-dd,Mx+dd))
     ax.set_ylim((my-dd,My+dd))
 
+    '''
     for k in range(x.size):
 
         Lcom.set_xdata(x[k])
@@ -391,7 +414,46 @@ class LLS(hds.HDS):
         Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
         Ecom.set_xdata(Ex)
         Ecom.set_ydata(Ey)
+        fig.canvas.draw()
+    '''
+    dp.x = x
+    dp.y = y
+    dp.theta = theta
+    dp.fx = fx
+    dp.fy = fy
+    dp.fig = fig
+    dp.Lcom = Lcom
+    dp.Lft = Lft
+    dp.Ecom = Ecom
+    dp.t = t
+    return dp
 
+  def animate(fig=None,data=None):
+    if fig == None or data == None:
+        print "Nothing to plot"
+        return
+
+    r = 1.01
+
+    def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
+        theta = 2*np.pi/(N-1)*np.arange(N)
+        xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
+        ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
+        return xs, ys
+
+    x = data['x']
+    y = data['y']
+    theta = data['theta']
+    fig = data['fig']
+
+    for k in range(x.size):
+        Lcom.set_xdata(x[k])
+        Lcom.set_ydata(y[k])
+        Lft.set_xdata([x[k],fx[k]])
+        Lft.set_ydata([y[k],fy[k]])
+        Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
+        Ecom.set_xdata(Ex)
+        Ecom.set_ydata(Ey)
         fig.canvas.draw()
 
   def plot(self,o=None,dt=1e-3,fign=-1,clf=True,axs0={},ls='-',ms='.',
@@ -592,44 +654,79 @@ if __name__ == "__main__":
   import sys
   args = sys.argv
 
-  op = opt.Opt()
-  op.pars(fi='llsBora.cfg')
-  #op.pars(fi='dbg.cfg')
+  op1 = opt.Opt()
+  op2 = opt.Opt()
+  op1.pars(fi='llsBora.cfg')
+  op2.pars(fi='lls.cfg')
 
-  p = op.p
+  p1 = op1.p
+  p2 = op2.p
 
-  dt = p['dt']
-  z0 = p['z0']
-  q0 = p['q0']
-  N  = p['N']
-  dbg  = p.get('dbg',False)
+  dt1 = p1['dt']
+  z01 = p1['z0']
+  q01 = p1['q0']
+  N1 = p1['N']
+  dbg1  = p1.get('dbg',False)
+  dt2 = p2['dt']
+  z02 = p2['z0']
+  q02 = p2['q0']
+  N2 = p2['N']
+  dbg2  = p2.get('dbg',False)
 
-  if 'lls' in p.keys():
-    lls = p['lls']
+  if 'lls' in p1.keys():
+    lls1 = p['lls']
   else:
-    lls = LLS(dt=dt)
+    lls1 = LLS(dt1)
+
+  if 'lls' in p2.keys():
+    lls2 = p2['lls']
+  else:
+    lls2 = LLS(dt2)
 
   st = time.time()
-  z = lls.ofind(np.asarray(z0),(q0,),N=10,modes=[1])
-  print '%0.2fsec to find gait, z = %s' % (time.time() - st,z)
+  z1 = lls1.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
+  z2 = lls2.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
+  print '%0.2fsec to find gait, z = %s' % (time.time() - st,z1)
 
   X=0.; Y=0.; theta=np.pi/2.;
   #x=np.random.randn(); y=np.random.randn(); theta=2*np.pi*np.random.rand()
   #x0, q0 = lls.extrinsic(z, q0, x=X, y=Y, theta=theta)
-  x0, q0 = lls.extrinsic(z0, q0, x=X, y=Y, theta=theta)
-  t,x,q = lls(0, 1e99, x0, q0, N, dbg=dbg)
+  x01, q01 = lls1.extrinsic(z01, q01, x=X, y=Y, theta=theta)
+  t1,x1,q1 = lls1(0, 1e99, x01, q01, N1, dbg=dbg1)
+  x02, q02 = lls2.extrinsic(z02, q02, x=X, y=Y, theta=theta)
+  t2,x,q2 = lls2(0, 1e99, x02, q02, N2, dbg=dbg2)
 
   if 'plot' in args or 'anim' in args:
-    o = lls.obs().resample(dt)
+    o1 = lls1.obs().resample(dt1)
+    o2 = lls2.obs().resample(dt2)
     if 'anim' in args:
-      lls.anim(o=o)
-    if 'plot' in args:
-      lls.plot(o=o)
+        plot1 = lls1.animGenerate(o1)
+        plot2 = lls2.animGenerate(o2)
 
-  v,delta,omega = z
-  op.pars(lls=lls,
-          x=X,y=Y,theta=theta,
-          v=v,delta=delta,omega=omega,
-          x0=x0,q0=q0,
-          T=np.diff([tt[0] for tt in t[::2]]).mean())
-          #testing
+  KE1 = np.vstack(o1.KE)
+  KE2 = np.vstack(o2.KE)
+  PE1 = np.vstack(o1.PE)
+  PE2 = np.vstack(o2.PE)
+  testEnergy = 0
+
+  for i in range(len(KE1)):
+    testEnergy += ((KE1[i] - KE2[i]) + (PE1[i] - PE2[i]))
+
+  print "Energy difference between the models: " + str(testEnergy)
+
+  '''
+   Run for the shorter simulation
+  '''
+  while(plot1.hasNext() and plot2.hasNext()):
+    plot1.animIterable()
+    plot2.animIterable()
+    #if 'plot' in args:
+    #    lls1.plot(o=o)
+    #    lls1.plot(o=o)
+
+  #v1,delta1,omega1 = z1
+  #op1.pars(lls=lls1,
+        #x=X,y=Y,theta=theta,
+        #v=v,delta=delta,omega=omega,
+        #x0=x0,q0=q0,
+        #T=np.diff([tt[0] for tt in t[::2]]).mean())
