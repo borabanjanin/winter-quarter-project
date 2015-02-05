@@ -1,12 +1,13 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+import modelplot as modelplot
+import modelwrapper
+import puck as puck
+import time
 
-s = pd.Series([1,3,5,np.nan,6,8])
 
-left = pd.DataFrame({'key' : ['foo', 'foo'], 'lval': [1, 2]})
-right = pd.DataFrame({'key': ['foo', 'foo'], 'rval': [4, 5]})
-
-rng = pd.date_range('1/1/2012', periods=100, freq='S')
-ts = pd.Series(np.random.randn(1000), index=pd.date_range('1/1/2000', periods=1000))
-ts = ts.cumsum()
+if __name__ == "__main__":
+    mw = modelwrapper.ModelWrapper()
+    mc = modelwrapper.ModelConfiguration(mw)
+    template = mc.jsonLoadTemplate('template')
+    template = mw.packConfiguration(template)
+    ID = mw.runTrial("puck.Puck",mc.jsonSaveConfiguration(mc.generateConfiguration(template)),["t","theta","x","y",])
+    #ID = mw.runTrial("lls.LLS",mc.jsonSaveConfiguration(mc.generateConfiguration(template)),["t","theta","x","y","fx","fy","v","delta","omega"])

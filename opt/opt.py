@@ -10,7 +10,7 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 #  General Public License for more details.
 #
-# (c) Sam Burden, Berkeley 2012 
+# (c) Sam Burden, Berkeley 2012
 
 import numpy as np
 import pylab as plt
@@ -72,8 +72,8 @@ def bd(x,xm,xM,dbg=True):
 
   by Sam Burden 2012
   """
-  x_ = np.asarray(x,dtype=np.float).copy(); 
-  xm = np.asarray(xm,dtype=np.float); 
+  x_ = np.asarray(x,dtype=np.float).copy();
+  xm = np.asarray(xm,dtype=np.float);
   xM = np.asarray(xM,dtype=np.float);
   jm = (x_ < xm).nonzero()[0]
   if jm.size > 0:
@@ -125,8 +125,8 @@ class Opt(object):
     Inputs:
       (optional)
       fi - str - parameter .py file
-      p0 - dict - initial parameter environment to use when exec'ing fi 
-      **p - keywords - additional parameters specified as keyword arguments 
+      p0 - dict - initial parameter environment to use when exec'ing fi
+      **p - keywords - additional parameters specified as keyword arguments
 
     Outputs:
       p - dict - current optimization params
@@ -135,7 +135,7 @@ class Opt(object):
       - exec's fi in self.p environment
       - runs self.sanitize on self.p
       - runs self.pack on self.p
-    """
+
     if fi or p:
       self.p.update(p0)
       self.p.update(p)
@@ -149,9 +149,14 @@ class Opt(object):
           self.cost = self.p['opt']['cost']
         self.pack(self.p)
     if hasattr(self, 'x') and hasattr(self, 'vars'):
-      return dict([(var,(self.x[self.j[i]:self.j[i+1]])) 
+      return dict([(var,(self.x[self.j[i]:self.j[i+1]]))
                    for i,var in enumerate(self.vars)])
-      
+
+    """
+    self.p.update(p0)
+    self.p.update(p)
+    self.p = self.sanitize(self.p,rm=p0.keys())
+
   def sanitize( self,p,rm={} ):
     """
     sanitize(p)  adds and/or resizes _m,_M,_s fields for each var
@@ -186,7 +191,7 @@ class Opt(object):
       if var+'_s' not in p.keys():
         # default to unity
         if np.any(np.isinf(np.r_[p[var+'_M'],p[var+'_m']])):
-          p[var+'_s'] = 1.*np.ones_like(p[var]) 
+          p[var+'_s'] = 1.*np.ones_like(p[var])
         # default to .1*(max - min)
         else:
           p[var+'_s'] = .1*(p[var+'_M']-p[var+'_m'])
@@ -197,7 +202,7 @@ class Opt(object):
 
   def pack(self, p=None):
     """
-    pack(p)  updates optimization variables given parameter dict 
+    pack(p)  updates optimization variables given parameter dict
 
     Inputs:
       p - updated parameter dict
@@ -295,7 +300,7 @@ class SPOpt(Opt):
     SPOpt(pth)  creates optimization instance
 
     Inputs:
-      pth - str - parameter .py file 
+      pth - str - parameter .py file
       op  - Opt - object with base class of Opt
     """
     Opt.__init__( self,pth )
@@ -491,7 +496,7 @@ class NM(Opt):
     """
     __repr__()  string representation of optimization state
     """
-    return 'k = {:4d}; f = {:0.2e}; p = {:s}'.format( 
+    return 'k = {:4d}; f = {:0.2e}; p = {:s}'.format(
             self.k, self.fx[-1], self.pars())
 
   def save( self ):
@@ -529,4 +534,3 @@ if __name__ == "__main__":
   print np.asarray(nm.F[-(nm.n+1):])
   while nm.step() and nm.k <= 100:
     print nm
-

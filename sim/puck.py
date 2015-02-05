@@ -9,7 +9,7 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 #  General Public License for more details.
 #
-# (c) Sam Burden, UC Berkeley, 2013 
+# (c) Sam Burden, UC Berkeley, 2013
 
 import numpy as np
 import pylab as plt
@@ -31,17 +31,20 @@ font = {'family' : 'sans-serif',
 mpl.rc('font', **font)
 
 np.set_printoptions(precision=2)
-	
+
 class Puck(hds.HDS):
-  def __init__(self,dt=1./500):
+  def __init__(self, config):
     """
     Puck  Puck hybrid system
     """
-    super(Puck, self).__init__(dt=dt)
-    
+    self.p = config
     self.name = 'Puck'
     self.accel = lambda t,x,q : np.zeros((x.shape[0],3))
-      
+    super(Puck, self).__init__(self.p['dt'])
+    self.x0 = None
+    self.q0 = None
+    self.x0, self.q0 = self.extrinsic(self.p['z0'], self.p['q0'], self.p['x'], self.p['y'], self.p['theta'])
+
   def dyn(self, t, x, q):
     """
     .dyn  evaluates system dynamics
@@ -70,7 +73,7 @@ class Puck(hds.HDS):
       ones = np.ones((x.shape[0],1))
       # unpack state
       x,y,theta,dx,dy,dtheta = x.T
-      # discrete mode 
+      # discrete mode
       q = q*ones
       # invariant state
       v = np.sqrt(dx**2 + dy**2)
@@ -120,7 +123,7 @@ class Puck(hds.HDS):
     xe = np.vstack(o.x[::2])
     ye = np.vstack(o.y[::2])
     thetae = np.vstack(o.theta[::2])
- 
+
     z = np.array([v[-1],delta[-1],theta[-1],dtheta[-1]])
 
     def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
@@ -181,7 +184,7 @@ class Puck(hds.HDS):
     dtheta = np.vstack(o.dtheta)
     v      = np.vstack(o.v)
     delta  = np.vstack(o.delta)
-    acc    = np.vstack(o.acc) * cvt['acc'] 
+    acc    = np.vstack(o.acc) * cvt['acc']
 
     qe      = np.vstack(o.q[::2])
     te      = np.hstack(o.t[::2]) * 1000
@@ -342,4 +345,3 @@ if __name__ == "__main__":
           v=v,delta=delta,omega=omega,
           x0=x0,q0=q0,
           T=np.diff([tt[0] for tt in t[::2]]).mean())
-

@@ -9,7 +9,7 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 #  General Public License for more details.
 #
-# (c) Sam Burden, UC Berkeley, 2013 
+# (c) Sam Burden, UC Berkeley, 2013
 
 import numpy as np
 import pylab as plt
@@ -20,7 +20,7 @@ import scipy.optimize as op
 import integro
 
 class Obs(object):
-    """  
+    """
     Obs  struct-like class for collecting observations
 
     Acts like a dict, but keys are members of the object.
@@ -48,7 +48,7 @@ class Obs(object):
         o = self.copy()
         t = o.t
         t0 = np.array([tt[0] for tt in t])
-        T = np.arange(t[0][0],t[-1][-1],dt) 
+        T = np.arange(t[0][0],t[-1][-1],dt)
         o.t = [T]
         for k in self.keys():
             x = self.__dict__[k]
@@ -81,7 +81,7 @@ class HDS(object):
         self.q = []
         self.e = []
 
-        self.dt = dt 
+        self.dt = dt
 
         self.name = 'HDS'
 
@@ -148,6 +148,8 @@ class HDS(object):
 
         return self.t, self.x, self.q
 
+    def initialize(self,config):
+        print "HDS: Not initialized"
 
     def dyn(self, t, x, q):
         """
@@ -295,7 +297,7 @@ class BB(HDS):
         sim.BB  Bouncing Ball hybrid system
         """
         HDS.__init__(self)
-        
+
         self.name = 'BB'
 
     def __call__(self, t, tf, x, q, Ne, c=0.9, g=9.81, h=0.):
@@ -331,7 +333,7 @@ class BB(HDS):
         return [lambda t,x : -(x[0] - q[3])]
 
 if __name__ == "__main__":
-    
+
     bb = BB()
     c = 0.8  # coefficient of restitution
     g = 9.81 # gravitational constant
@@ -355,6 +357,3 @@ if __name__ == "__main__":
     plt.xlim(xlim)
     plt.ylabel('Energy')
     plt.xlabel('Time')
-
-
-

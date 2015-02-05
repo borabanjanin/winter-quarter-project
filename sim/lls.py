@@ -38,15 +38,30 @@ np.set_printoptions(precision=2)
 
 class LLS(hds.HDS):
 
-  def __init__(self,dt=1./500):
+  def __init__(self,config):
     """
     LLS  LLS hybrid system
     """
-    super(LLS, self).__init__(dt=dt)
-
+    op = opt.Opt()
+    #op.pars(fi=config) TO DO: DEPRECIATED FORMAT
+    #self.p = op.p
+    self.p = config
+    super(LLS, self).__init__(self.p['dt'])
     self.name = 'LLS'
     self.accel = lambda t,x,q : np.zeros((x.shape[0],3))
+    self.x0 = None
+    self.q0 = None
+    self.initExtrinsic()
 
+  def initExtrinsic(self):
+    """
+    initializes the model
+    """
+
+    #X=0.; Y=0.; theta=np.pi/2.;
+    #self.x0, self.q0 = self.extrinsic(self.p['z0'], self.p['q0'], x=X, y=Y, theta=theta)
+
+    self.x0, self.q0 = self.extrinsic(self.p['z0'], self.p['q0'], self.p['x'], self.p['y'], self.p['theta'])
 
   def P(self, q=[1,0.0025,2.04e-7,0.017,0.53,-0.002,np.pi/4,0.,0.], debug=False):
     """
@@ -154,6 +169,8 @@ class LLS(hds.HDS):
       o.delta += [np.c_[delta]]
       o.q += [np.c_[q]]
       o.acc += [np.c_[acc]]
+      #added to resolve naming convention
+      o.omega = o.dtheta
     # store result
     self.o = o
     return self.o
@@ -321,85 +338,6 @@ class LLS(hds.HDS):
     q, = args
 
     return self.step(z, q)
-
-  '''
-  def animGenerate(self, o=None, dt=1e-3):
-    """
-    .anim  animate trajectory
-
-    INPUTS:
-      o - Obs - trajectory to animate
-
-    OUTPUTS:
-    """
-    if o is None:
-      o = self.obs().resample(dt)
-
-    dp = DoublePlot()
-    t = np.hstack(o.t)
-    x = np.vstack(o.x)
-    y = np.vstack(o.y)
-    fx = np.vstack(o.fx)
-    fy = np.vstack(o.fy)
-    v = np.vstack(o.v)
-    delta = np.vstack(o.delta)
-    theta = np.vstack(o.theta)
-    dtheta = np.vstack(o.dtheta)
-    PE = np.vstack(o.PE)
-    KE = np.vstack(o.KE)
-    E = np.vstack(o.E)
-
-    te = np.hstack(o.t[::2])
-    xe = np.vstack(o.x[::2])
-    ye = np.vstack(o.y[::2])
-    thetae = np.vstack(o.theta[::2])
-
-    z = np.array([v[-1],delta[-1],theta[-1],dtheta[-1]])
-
-    def zigzag(a=.2,b=.6,c=.2,p=4,N=100):
-      x = np.linspace(0.,a+b+c,N); y = 0.*x
-      mb = np.round(N*a/(a+b+c)); Mb = np.round(N*(a+b)/(a+b+c))
-      y[mb:Mb] = np.mod(np.linspace(0.,p-.01,Mb-mb),1.)-0.5
-      return np.vstack((x,y))
-
-    def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
-        theta = 2*np.pi/(N-1)*np.arange(N)
-        xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
-        ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
-        return xs, ys
-
-    r = 1.01
-
-    mx,Mx,dx = (x.min(),x.max(),x.max()-x.min())
-    my,My,dy = (y.min(),y.max(),y.max()-y.min())
-    dd = 5*r
-
-    fig = plt.figure(LLS.plotNumberInc(),figsize=(5*(Mx-mx+2*dd)/(My-my+2*dd),5))
-    plt.clf()
-    ax = fig.add_subplot(111,aspect='equal')
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
-    Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
-    Ecom.set_linewidth(4.0)
-    Lft,  = ax.plot([x[0],fx[0]],[y[0],fy[0]],'g.-',lw=4.)
-
-    ax.set_xlim((mx-dd,Mx+dd))
-    ax.set_ylim((my-dd,My+dd))
-
-    dp.x = x
-    dp.y = y
-    dp.theta = theta
-    dp.fx = fx
-    dp.fy = fy
-    dp.fig = fig
-    dp.Lcom = Lcom
-    dp.Lft = Lft
-    dp.Ecom = Ecom
-    dp.t = t
-    return dp
-    '''
 
   def animate(fig=None,data=None):
     if fig == None or data == None:
@@ -639,35 +577,30 @@ if __name__ == "__main__":
   z01 = p1['z0']
   q01 = p1['q0']
   N1 = p1['N']
-  dbg1  = p1.get('dbg',False)
+
   dt2 = p2['dt']
   z02 = p2['z0']
   q02 = p2['q0']
   N2 = p2['N']
-  dbg2  = p2.get('dbg',False)
 
-  if 'lls' in p1.keys():
-    lls1 = p['lls']
-  else:
-    lls1 = LLS(dt1)
 
-  if 'lls' in p2.keys():
-    lls2 = p2['lls']
-  else:
-    lls2 = LLS(dt2)
 
+  lls1 = LLS('llsBora.cfg')
+  lls2 = LLS('lls.cfg')
+  dbg1  = lls1.p.get('dbg',False)
+  dbg2  = lls2.p.get('dbg',False)
   st = time.time()
-  z1 = lls1.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
-  z2 = lls2.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
-  print '%0.2fsec to find gait, z = %s' % (time.time() - st,z1)
+  #z1 = lls1.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
+  #z2 = lls2.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
+  #print '%0.2fsec to find gait, z = %s' % (time.time() - st,z1)
 
   X=0.; Y=0.; theta=np.pi/2.;
   #x=np.random.randn(); y=np.random.randn(); theta=2*np.pi*np.random.rand()
   #x0, q0 = lls.extrinsic(z, q0, x=X, y=Y, theta=theta)
-  x01, q01 = lls1.extrinsic(z01, q01, x=X, y=Y, theta=theta)
-  t1,x1,q1 = lls1(0, 1e99, x01, q01, N1, dbg=dbg1)
-  x02, q02 = lls2.extrinsic(z02, q02, x=X, y=Y, theta=theta)
-  t2,x,q2 = lls2(0, 1e99, x02, q02, N2, dbg=dbg2)
+  #x01, q01 = lls1.extrinsic(z01, q01, x=X, y=Y, theta=theta)
+  t1,x1,q1 = lls1(0, 1e99, lls1.x0, lls1.q0, N1, dbg1)
+  #x02, q02 = lls2.extrinsic(z02, q02, x=X, y=Y, theta=theta)
+  t2,x,q2 = lls2(0, 1e99, lls2.x0, lls2.q0, N2, dbg2)
 
   if 'plot' in args or 'anim' in args:
     o1 = lls1.obs().resample(dt1)
@@ -692,14 +625,14 @@ if __name__ == "__main__":
 
   '''
    Run for while both lls models have additional data points
-  '''
+
   while(plot1.hasNext() and plot2.hasNext()):
     plot1.animIterable()
     plot2.animIterable()
     #if 'plot' in args:
     #    lls1.plot(o=o)
     #    lls1.plot(o=o)
-
+  '''
   #v1,delta1,omega1 = z1
   #op1.pars(lls=lls1,
         #x=X,y=Y,theta=theta,
