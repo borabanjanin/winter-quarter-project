@@ -264,8 +264,10 @@ class ModelAnimate(object):
             values['my'] = observation['y'].min()
             values['My'] = observation['y'].max()
             boundaries[ID] = values
-            print values['Mx']
-            print values['My']
+            #print values['mx']
+            #print values['my']
+            #print values['Mx']
+            #print values['My']
 
         return boundaries
 
@@ -310,7 +312,7 @@ class ModelAnimate(object):
             animation['Lft'],  = ax.plot([observation['x'].loc[0]+boundary['xOffset'],observation['fx'].loc[0]]+boundary['xOffset'], \
             [observation['y'].loc[0]+boundary['yOffset'],observation['fy'].loc[0]+boundary['yOffset']],'g.-',lw=4.)
             animation['index'] = 0
-            animation['length'] = modelwrapper.dataLength(observation)
+            animation['length'] = self.modelwrapper.dataLength(observation)
             animations[ID] = animation
 
         iterable = ModelAnimate.Iterator(IDs,plotID,animations,boundaries)
@@ -343,9 +345,12 @@ class ModelAnimate(object):
 
     def animateTrialID(self,IDs):
         #ma = mp.ModelAnimate(self.observations)
+        self.modelwrapper.csvLoadObs(IDs)
         iterator = self.animGenerate(IDs)
         while self.hasNext(iterator):
+            time.sleep(0.01)
             self.animIterate(iterator)
+        self.modelwrapper.csvReleaseObs(IDs)
 
 if __name__ == "__main__":
     mw = model.ModelWrapper()

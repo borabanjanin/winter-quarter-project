@@ -114,7 +114,7 @@ class LLS(hds.HDS):
           -dV*(y + d*np.cos(theta) - fy)/(m*eta) + acc[1],
           -dV*d*((x - fx)*np.cos(theta)
                - (y - fy)*np.sin(theta))/(I*eta) + acc[2]]
-    # return vector field
+               
     return dx
 
   def obs(self):
@@ -339,6 +339,7 @@ class LLS(hds.HDS):
 
     return self.step(z, q)
 
+  '''
   def animate(fig=None,data=None):
     if fig == None or data == None:
         print "Nothing to plot"
@@ -366,6 +367,7 @@ class LLS(hds.HDS):
         Ecom.set_xdata(Ex)
         Ecom.set_ydata(Ey)
         fig.canvas.draw()
+  '''
 
   def plot(self,o=None,dt=1e-3,fign=-1,clf=True,axs0={},ls='-',ms='.',
                 alpha=1.,lw=2.,fill=True,legend=True,color='k',
@@ -559,6 +561,287 @@ class LLS(hds.HDS):
     omega = dtheta
     z = np.array([v,delta,omega])
     return z, q
+
+class LLStoPuck(LLS):
+
+  def dVdeta(self, eta, q):
+    """
+    dVdeta  spring force
+    """
+    # unpack params
+    q,m,I,eta0,k,d,beta,fx,fy = q
+    # linear spring
+    return k*(eta - eta0)
+
+  def dyn(self, t, x, q):
+    """
+    .dyn  evaluates system dynamics
+    """
+    p = q.copy()
+    # perturbation
+    acc = self.accel(t,np.array([x]),q).flatten()
+    # unpack params
+    q,m,I,eta0,k,d,beta,fx,fy = q
+    # unpack state
+    x,y,theta,dx,dy,dtheta = x
+    # Puck mode
+    if q == 2:
+      # Cartesian dynamics
+      dx = [dx, dy, dtheta, acc[0], acc[1], acc[2]]
+    # LLS mode
+    else:
+      # foot, COM, hip
+      f = np.array([fx,fy])
+      c = np.array([x,y])
+      h = c + d*np.array([np.sin(theta),np.cos(theta)])
+      # leg length
+      eta = np.linalg.norm(h - f)
+      # spring force
+      dV = self.dVdeta(eta,p)
+      # Cartesian dynamics
+      dx = [dx, dy, dtheta,
+            -dV*(x + d*np.sin(theta) - fx)/(m*eta) + acc[0],
+            -dV*(y + d*np.cos(theta) - fy)/(m*eta) + acc[1],
+            -dV*d*((x - fx)*np.cos(theta)
+                 - (y - fy)*np.sin(theta))/(I*eta) + acc[2]]
+    return dx
+
+  def trans(self, t, x, q, e):
+    """
+    .trans  transition between discrete modes
+    """
+    # copy data
+    t = t.copy(); x = x.copy(); q = q.copy()
+    # unpack params
+    q,m,I,eta0,k,d,beta,fx,fy = q
+    # unpack state
+    x,y,theta,dx,dy,dtheta = x
+    # foot, com, hip
+    f = np.array([fx,fy])
+    c = np.array([x,y])
+    h = c + d*np.array([np.sin(theta),np.cos(theta)])
+    # leg length
+    eta = np.linalg.norm(h - f)
+    # foot in body frame
+    fh = f-h
+    fb = [fh[0]*np.cos(-theta)  + fh[1]*np.sin(-theta),
+          fh[0]*-np.sin(-theta) + fh[1]*np.cos(-theta)]
+    # left foot is right of body axis OR right foot is left of body axis
+    if ( ( fb[0] > 0 ) and ( q == 0 ) ) or ( ( fb[0] < 0 ) and ( q == 1 ) ):
+      q=2
+    else:
+      # switch stance foot
+      q = np.mod(q + 1,2)
+      # COM, hip
+      c = np.array([x,y])
+      h = c + d*np.array([np.sin(theta),np.cos(theta)])
+      # leg reset; q even for left stance, odd for right
+      eta = eta0*np.array([np.sin(theta - beta*(-1)**q),
+                           np.cos(theta - beta*(-1)**q)])
+      # new foot position
+      f = h + eta
+      fx = f[0]
+      fy = f[1]
+      # com vel
+      dc = np.array([dx,dy])
+      # hip vel
+      dh = dc + d*dtheta*np.array([np.cos(theta),-np.sin(theta)])
+      # hip vel in body frame
+      dhb=[dh[0]*np.cos(-theta)  + dh[1]*np.sin(-theta),
+           dh[0]*-np.sin(-theta) + dh[1]*np.cos(-theta)]
+      # foot in body frame
+      fh=f-h
+      fb=[fh[0]*np.cos(-theta)  + fh[1]*np.sin(-theta),
+          fh[0]*-np.sin(-theta) + fh[1]*np.cos(-theta)]
+      # leg will instantaneously extend
+      if np.dot(fb, dhb) < 0:
+        q=2
+    # pack state, params
+    x = np.array([x,y,theta,dx,dy,dtheta])
+    q = np.array([q,m,I,eta0,k,d,beta,fx,fy])
+    return t, x, q
+
+  def evts(self, q):
+    """
+    .evts  returns event functions for given hybrid domain
+    """
+    # unpack params
+    q,m,I,eta0,k,d,beta,fx,fy = q
+    # Puck has no events
+    if q == 2:
+      z = lambda t,x : 0.
+      return [z, z]
+    else:
+      # leg extension
+      def leg(t,x):
+        # unpack state
+        x,y,theta,dx,dy,dtheta = x
+        # foot, COM, hip
+        f = np.array([fx,fy])
+        c = np.array([x,y])
+        h = c + d*np.array([np.sin(theta),np.cos(theta)])
+        # leg length
+        eta = np.linalg.norm(h - f)
+        # leg extension
+        return eta - eta0
+      # foot location
+      def foot(t,x):
+        # unpack state
+        x,y,theta,dx,dy,dtheta = x
+        # foot, COM, hip
+        f = np.array([fx,fy])
+        c = np.array([x,y])
+        h = c + d*np.array([np.sin(theta),np.cos(theta)])
+        # foot in body frame
+        fh = f-h
+        fb = [fh[0]*np.cos(-theta)  + fh[1]*np.sin(-theta),
+              fh[0]*-np.sin(-theta) + fh[1]*np.cos(-theta)]
+        # foot distance from body axis
+        return fb[0]*(-1)**q
+      # leg extension, foot location
+      return [leg, foot]
+
+  # TO DO: don't plot leg when discrete mode q == 2
+  def plot(self,o=None,dt=1e-3,fign=-1,clf=True,axs0={},ls='-',ms='.',
+                alpha=1.,lw=2.,fill=True,legend=True,color='k',
+           plots=['2d','v','E'],label=None,cvt={'t':1000,'acc':1./981}):
+    """
+    .plot  plot trajectory
+
+    INPUTS:
+      o - Obs - trajectory to plot
+
+    OUTPUTS:
+    """
+    if o is None:
+      o = self.obs().resample(dt)
+
+    t      = np.hstack(o.t) * cvt['t']
+    x      = np.vstack(o.x)
+    y      = np.vstack(o.y)
+    theta  = np.vstack(o.theta)
+    dx     = np.vstack(o.dx)
+    dy     = np.vstack(o.dy)
+    dtheta = np.vstack(o.dtheta)
+    v      = np.vstack(o.v)
+    delta  = np.vstack(o.delta)
+    fx     = np.vstack(o.fx)
+    fy     = np.vstack(o.fy)
+    PE     = np.vstack(o.PE)
+    KE     = np.vstack(o.KE)
+    E      = np.vstack(o.E)
+    acc    = np.vstack(o.acc) * cvt['acc']
+
+    qe      = np.vstack(o.q[::2])
+    te      = np.hstack(o.t[::2]) * 1000
+    xe      = np.vstack(o.x[::2])
+    ye      = np.vstack(o.y[::2])
+    thetae  = np.vstack(o.theta[::2])
+    ve      = np.vstack(o.v)
+    deltae  = np.vstack(o.delta[::2])
+    thetae  = np.vstack(o.theta[::2])
+    dthetae = np.vstack(o.dtheta[::2])
+    fxe    = np.vstack(o.fx[::2])
+    fye    = np.vstack(o.fy[::2])
+
+    def do_fill(te,qe,ylim):
+      for k in range(len(te)-1):
+        if qe[k,0] == 0:
+          color = np.array([1.,0.,0.])
+        if qe[k,0] == 1:
+          color = np.array([0.,0.,1.])
+        ax.fill([te[k],te[k],te[k+1],te[k+1]],
+                [ylim[1],ylim[0],ylim[0],ylim[1]],
+                fc=color,alpha=.35,ec='none',zorder=-1)
+
+    fig = plt.figure(fign)
+    if clf:
+      plt.clf()
+    axs = {}
+
+    Np = len(plots)
+    pN = 1
+
+    if '2d' in plots:
+      if '2d' in axs0.keys():
+        ax = axs0['2d']
+      else:
+        ax = plt.subplot(Np,1,pN,aspect='equal'); pN+=1; ax.grid('on')
+      #xlim = np.array([te[0],te[-1]]) + np.array([-.02,.02])*(te[-1]-te[0])
+      #ylim = np.array([-.1,1.1])*E.mean()
+      if fill:
+        #ax.plot(xe,ye,'y+',mew=2.,ms=8)
+        ax.plot(fxe[qe==0.],fye[qe==0.],'ro',mew=0.,ms=10)
+        ax.plot(fxe[qe==1.],fye[qe==1.],'bo',mew=0.,ms=10)
+      ax.plot(x ,y ,color=color,ls=ls,lw=lw,alpha=alpha,label=label)
+      #ax.set_xlim(xlim); ax.set_ylim(ylim)
+      ax.set_xlabel('x (cm)'); ax.set_ylabel('y (cm)')
+      axs['2d'] = ax
+
+    if 'y' in plots:
+      if 'y' in axs0.keys():
+        ax = axs0['y']
+      else:
+        ax = plt.subplot(Np,1,pN); pN+=1; ax.grid('on')
+      #xlim = np.array([te[0],te[-1]]) + np.array([-.02,.02])*(te[-1]-te[0])
+      #ylim = np.array([-.1,1.1])*E.mean()
+      ax.plot(t,y ,color=color,ls=ls,lw=lw,alpha=alpha,label=label)
+      #ax.set_xlim(xlim); ax.set_ylim(ylim)
+      ax.set_ylabel('y (cm)')
+      axs['y'] = ax
+
+    if 'v' in plots:
+      ax = plt.subplot(Np,1,pN); pN+=1; ax.grid('on')
+      xlim = np.array([te[0],te[-1]]) + np.array([-.02,.02])*(te[-1]-te[0])
+      ylim = np.array([-.1,1.1])*v.max()
+      #ax.plot(np.vstack([te,te]),(np.ones((te.size,1))*ylim).T,'k:',lw=1)
+      ax.plot(t,v,color=color,ls=ls,  lw=lw,label='$v$',alpha=alpha)
+      ax.set_xlim(xlim); ax.set_ylim(ylim)
+      if legend:
+        ax.legend(loc=7,ncol=3)
+      if fill:
+        do_fill(te,qe,ylim)
+      ax.set_ylabel('v (cm/sec)')
+      axs['v'] = ax
+
+    if 'acc' in plots:
+      if 'acc' in axs0.keys():
+        ax = axs0['acc']
+      else:
+        ax = plt.subplot(Np,1,pN); pN+=1; ax.grid('on')
+      xlim = np.array([te[0],te[-1]]) + np.array([-.02,.02])*(te[-1]-te[0])
+      ylim = np.array([min(0.,1.2*acc.min()),1.2*acc.max()])
+      ax.plot(t,acc,color=color,ls=ls,  lw=lw,label='$a$',alpha=alpha)
+      #ax.set_xlim(xlim); #ax.set_ylim(ylim)
+      if legend:
+        ax.legend(loc=7,ncol=3)
+      #if fill:
+      #  do_fill(te,qe,ylim)
+      #ax.set_ylabel('roach perturbation (cm / s$^{-2}$)')
+      ax.set_ylabel('cart acceleration (g)')
+      axs['acc'] = ax
+
+    if 'E' in plots:
+      ax = plt.subplot(Np,1,pN); pN+=1; ax.grid('on')
+      xlim = np.array([te[0],te[-1]]) + np.array([-.02,.02])*(te[-1]-te[0])
+      ylim = np.array([-.1,1.1])*E.mean()
+      ax.plot(t,E ,color=color,ls=ls,lw=lw,label='$E$',alpha=alpha)
+      ax.plot(t,KE,'b',ls=ls,  lw=lw,label='$KE$',alpha=alpha)
+      ax.plot(t,PE,'g',ls=ls,  lw=lw,label='$PE$',alpha=alpha)
+      ax.set_xlim(xlim); ax.set_ylim(ylim)
+      if legend:
+        ax.legend(loc=7,ncol=3)
+      for k in range(len(te)-1):
+        if qe[k,0] == 0 and fill:
+          ax.fill([te[k],te[k],te[k+1],te[k+1]],
+                  [ylim[1],ylim[0],ylim[0],ylim[1]],
+                  fc=np.array([1.,1.,1.])*0.75,ec='none',zorder=-1)
+      ax.set_ylabel('E (g m**2 / s**2)')
+      axs['E'] = ax
+
+    ax.set_xlabel('time (msec)');
+
+    return axs
 
 if __name__ == "__main__":
 

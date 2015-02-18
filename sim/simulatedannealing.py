@@ -24,65 +24,94 @@ START_TIME = time.time()
 runtime = []
 
 mw = model.ModelWrapper()
+DATA_ID = 1
+mw.csvLoadData(DATA_ID)
+optimizationData = mw.data[DATA_ID]
+
 mc = model.ModelConfiguration(mw)
 mp = modelplot.ModelPlot(mw)
-ms = modelplot.ModelStreamer()
-stream1, stream2 = ms.createConnection()
 
+ms = modelplot.ModelStreamer()
+stream1, tream2 = ms.createConnection()
+#Variables to adjust
 varOpt = ['x','y','v','theta','omega']
+
+#Variables for cost function
+varCost=['x','y']
+
+label = {'x':'Roach_x','y':'Roach_y','v':'Roach_v','theta':'Roach_theta','omega':'Roach_dtheta'}
+
+DATA_OFFSET = 283
+
 INDEX_BEGIN = 0
-INDEX_END = 198
+INDEX_END = 200
+
+#Penalty for missing a data point per index
 MISSING_PENALTY = 100
 
+'''
+#Create test trajectory
 testTrajectory = {'x': [], 'y': []}
-xEnd = {'x':10.0,'y':-10.0}
+xEnd = {'x':12.0,'y':-12.0}
 diff = INDEX_END - INDEX_BEGIN
 for i in range(INDEX_BEGIN,INDEX_END+1):
     testTrajectory['x'].append(float(i)*xEnd['x']/diff)
     testTrajectory['y'].append(float(i)*xEnd['y']/diff)
+'''
 
-def checkIndex(observation, i):
+#Check if index exists
+def checkModelIndex(observation, i):
     if any(observation.index == i):
         return True
     else:
         return False
-'''
-def timeVector():
-    time = []
-    currentTime = TIME_BEGIN
-    while(currentTime <= TIME_END):
-        time.append(currentTime)
-        currentTime += TIME_STEP
-        currentTime = round(currentTime,3)
-    return time
-'''
 
+def checkDataIndex(data, i, variables):
+    for variables in variables:
+        if isnull(data.ix[i,variable]):
+            raise Exception("SimulatedAnealing: Null data " + str(i) + variable)
+        else:
+            return True
+
+#Calculate cost for actual versus
+#expected trajectory values
+#Least squares error
 def cost(x0):
     summation = 0.0
     observation = mw.observations[mw.trialID()-1]
     for i in range(INDEX_BEGIN,INDEX_END+1):
-        if checkIndex(observation,i):
-            for var in xEnd:
-                summation += float((testTrajectory[var][i] - observation.ix[i, var])**2)
+        if checkModelIndex(observation,i):
+            currentDiff = []
+            for var in varCost:
+                dataName = label[var]
+                summation += (float(optimizationData.ix[i + DATA_OFFSET, dataName]) - float(observation.ix[i, var]))**2
         else:
             summation += MISSING_PENALTY
-    return float(np.sqrt(summation))
+    return summation
 
+#The minimizer just returns values
 def noChange(fun, x0, args, **options):
     return spo.OptimizeResult(x=x0, fun=fun(x0), success=True, nfev=1)
 
+#Used to stream data to plotly
 def streamTrial(ID):
     observation = mw.observations[ID]
     k=[]
     j=[]
+    h=[]
+    l=[]
     for i in range(INDEX_BEGIN,INDEX_END+1):
-        if checkIndex(observation,i):
+        if checkModelIndex(observation,i):
                 k.append(observation.ix[i, 'x'])
                 j.append(observation.ix[i, 'y'])
+                h.append(optimizationData.ix[i + DATA_OFFSET, label['x']])
+                l.append(optimizationData.ix[i + DATA_OFFSET, label['y']])
 
     stream1.write(dict(x=k, y=j))
-    stream2.write(dict(x=testTrajectory['x'], y=testTrajectory['y']))
+    stream2.write(dict(x=h, y=l))
 
+#Used in basinhopping callback
+#ModelWrapper hook
 def modelSimulate(x, f, record):
     global START_TIME
     global runtime
@@ -98,13 +127,14 @@ def modelSimulate(x, f, record):
     if ID % 20 == 0:
         streamTrial(ID)
     mw.updateCost(ID-1, f)
-    mw.updateCost(ID, 10000.00)
+    mw.updateDataID(ID,DATA_ID)
+    mw.updateCost(ID, 1000000.00)
 
 
 if __name__ == "__main__":
     template = mc.jsonLoadTemplate('template')
     template = mw.packConfiguration(template)
-    TIME_STEP = template['dt']
+    #TIME_STEP = template['dt']
     ID = mw.runTrial("lls.LLS",mc.jsonSaveConfiguration(mc.generateConfiguration(template)),["t","theta","x","y","fx","fy","v","delta","omega"])
     #mw.animateTrialID([0, 1])
 
@@ -112,15 +142,19 @@ if __name__ == "__main__":
     xBegin = []
     for var in varOpt:
         xBegin.append(template[var])
-    #ret = spo.basinhopping(func, x0, minimizer_kwargs=minimizer_kwargs,niter=200)
     try:
-        ret = spo.basinhopping(cost,xBegin,minimizer_kwargs=minimizer_kwargs,niter=500,callback=modelSimulate,T=10.,stepsize=8.,interval=60)
+        ret = spo.basinhopping(cost,xBegin,minimizer_kwargs=minimizer_kwargs,niter=100,callback=modelSimulate,T=10.,stepsize=8.,interval=60)
         print ret
+
+        #Shows run time
         print "Early: " + str(runtime[1])
         print "End: " + str(runtime[len(runtime)-1])
+
+        #Displays best trial at the end
         best = pd.Series(mw.trials['Cost'])
         best.reset_index()
         bestOB = mw.observations[(best[best == min(best)].index)[0]]
         stream1.write(dict(x=list(bestOB['x']), y=list(bestOB['y'])))
+
     except KeyboardInterrupt:
         print "exit optimization"
