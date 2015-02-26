@@ -21,12 +21,25 @@ import puck as puck
 from opt import opt
 import modelplot as mp
 
+from util import num
+
+'''
+t # time samples
+a # cart accel
+# set this member variable when you "uptake" experimental data
+model.accel = ( lambda s,_,_ : np.array([0.,num.interp1(s,t,a),0.]) )
+# later in LLS.dyn the following will be called:
+LLSmdl.accel(.5,_,_)
+'''
+
 import os
 import time
 import sys
 import json
 import copy
 import gc
+import math
+from collections import OrderedDict
 
 class ModelWrapper(object):
     """
@@ -39,7 +52,6 @@ class ModelWrapper(object):
     """
     Global Constants
     """
-    NUMBER_MODELS = 1000
 
     def __init__(self, saveDir=None):
         self.saveDir = ModelWrapper.saveDirectory(saveDir)
@@ -47,7 +59,7 @@ class ModelWrapper(object):
         self.observations = {}
         self.parameters = {}
         self.configuration = {}
-        self.trials = pd.DataFrame(columns=('ModelName','ConfFile','Cost','DataIDs','HashParm'))
+        self.trials = pd.DataFrame(columns=('ModelName','ConfFile','Cost','DataID','HashParm'))
         self.loadTables()
         self.loadCurrentID()
         self.data = {}
@@ -219,19 +231,6 @@ class ModelWrapper(object):
 
         return dictionary
 
-    def packConfiguration(self, configuration):
-        zVarList = ['v','delta','omega']
-        qVarList = ['q','m','I','eta0','k','d','beta','fx','fy']
-        z0 = []
-        q0 = []
-        for var in zVarList:
-            z0.append(configuration[var])
-        for var in qVarList:
-            q0.append(configuration[var])
-        configuration['q0'] = q0
-        configuration['z0'] = z0
-        return configuration
-
     def createDataFrameNpy(self, dataSize=0, dictionary=None):
         '''
         .createDataFrame takes the dictionary, data with arrays in the numpy format,
@@ -288,6 +287,9 @@ class ModelWrapper(object):
         dataSize = self.checkParmLengthNpy(dictionary)
         ob = self.createDataFrameNpy(dataSize,dictionary)
         self.observations[ID] = ob
+        #TO DO: Fix model theta
+        for i in range(len(self.observations[ID]['theta'])):
+            self.observations[ID]['theta'][i] -= np.pi/2
 
     def storeParms(self, ID, listParm):
         '''
@@ -338,10 +340,13 @@ class ModelWrapper(object):
             parameters - m x n dictionary
         '''
         parmHash = self.hashaList(self.parameters[ID])
-        self.trials.loc[ID] = [modelName, configName, np.nan, np.nan, parmHash]
+        if isinstance(configName, str):
+            self.trials.loc[ID] = [modelName, configName, np.nan, np.nan, parmHash]
+        else:
+            self.trials.loc[ID] = [modelName, 'N/A', np.nan, np.nan, parmHash]
         #'ModelName','ConfFile','Cost','HashParm'
 
-    def jsonLoadConfiguration(self,configName):
+    def jsonConfiguration(self,configName):
         configFile = os.path.join(self.saveDir, 'configurations',configName)
         if os.path.isfile(configFile):
             with open(configFile, 'r') as file:
@@ -349,19 +354,33 @@ class ModelWrapper(object):
         else:
             raise Exception("ModelWrapper: Not valid configuration file")
 
-    def initModel(self, modelName, config):
+    def initModel(self, modelName, config, dataID):
 
         #configPath = os.path.join(os.getcwd(),config)
 
         #if os.path.isfile(configPath) == False:
         #    raise Exception("ModelWrapper: Not a valid config file")
-        model = eval(modelName)(self.packConfiguration(self.jsonLoadConfiguration(config)))
+        model = None
+
+        if isinstance(config, dict):
+            model = eval(modelName)(ModelConfiguration.packConfiguration(config))
+        else:
+            config = os.path.join(self.saveDir,'configurations',config)
+            model = eval(modelName)(ModelConfiguration.packConfiguration(self.jsonConfiguration(config)))
+
+        dt = model.p['dt']
+        beginIndex, endIndex = self.findDataIndex(dataID, None, 'all')
+        accelData = np.array(self.data[dataID].ix[beginIndex:endIndex-2, "CartAcceleration"])
+        timeData = np.array(np.linspace(beginIndex*dt,(endIndex-2)*dt,endIndex-1-beginIndex))
+        model.accel = ( lambda s,i,j : np.array([0.,num.interp1(np.array([s]),timeData,accelData),0.]))
+        #mw.data[dataID].ix[beginIndex:endIndex-2, "CartAcceleration"]
+        #model.accel = ( lambda s,i,j : np.array([0.,num.interp1(s,t,self.data[dataID]),0.]) )
         return model
 
     def runModel(self, model, listParm, confName):
         dbg  = model.p.get('dbg',False)
         #TO DO: Call simulate
-        t,x,q = model(0, 3, model.x0, model.q0, model.p['N'], dbg)
+        t,x,q = model(0, model.p['t'], model.x0, model.q0, model.p['N'], dbg)
         o = model.obs().resample(model.p['dt'])
         ID = self.newTrialID()
         self.storeObs(ID, o, listParm)
@@ -370,7 +389,7 @@ class ModelWrapper(object):
         self.storeMod(ID, model.name, confName)
         return ID
 
-    def runTrial(self, modelName=None, config=None, listParm=None):
+    def runTrial(self, modelName=None, config=None, listParm=None, dataID =None):
         '''
         .runTrial takes the model call, configuration file, and list of
         parameters to be tracked. It then runs the model and stores the
@@ -389,8 +408,12 @@ class ModelWrapper(object):
         or config == None \
         or listParm == None:
             raise Exception("ModelWrapper: No model name, config file, or list of variables to track was given")
-        model = self.initModel(modelName, os.path.join(self.saveDir,'configurations',config))
-        return self.runModel(model, listParm, config)
+
+        model = self.initModel(modelName, config, dataID)
+        ID = self.runModel(model, listParm, config)
+        self.updateDataID(ID,dataID)
+        return ID
+        return 0
 
     def csvTrials(self):
         self.trials.to_csv(os.path.join(self.saveDir,'trials.csv'), sep='\t')
@@ -407,11 +430,11 @@ class ModelWrapper(object):
     def csvObservation(self,ID):
         observationsDF = self.createDataFrame(self.checkParmLength(self.observations[ID]), self.observations[ID])
         obsDir = os.path.join(self.saveDir,'observations')
-        observationsDF.to_csv(os.path.join(obsDir,'observation' + str(ID) + '.csv'), sep='\t')
+        observationsDF.to_csv(os.path.join(obsDir,'observation-' + str(ID) + '.csv'), sep='\t')
 
     def saveTables(self):
         self.csvTrials()
-        #self.csvObservations()
+        self.csvObservations()
         #self.jsonConfigurations()
         #self.jsonParameters()
 
@@ -432,7 +455,7 @@ class ModelWrapper(object):
 
     def csvLoadOb(self,ID):
         savePath = os.path.join(self.saveDir,'observations')
-        csvPath = os.path.join(savePath,'observation' + str(ID) + '.csv')
+        csvPath = os.path.join(savePath,'observation-' + str(ID) + '.csv')
         self.observations[ID] = pd.read_csv(csvPath, sep='\t', index_col=0)
 
     def loadTables(self):
@@ -463,11 +486,24 @@ class ModelWrapper(object):
     def updateCost(self, ID, cost):
         self.trials.ix[ID,'Cost'] = cost
 
-    def updateDataIDs(self, ID, dataIDs):
-        stringIDs = ''
-        for dataID in dataIDs:
-            stringIDs += str(dataID) + ' '
-        self.trials.ix[ID,'DataIDs'] = stringIDs
+    def updateDataID(self, ID, dataID):
+        self.trials.ix[ID,'DataID'] = dataID
+
+    def findDataIndex(self, dataID, offset, optMode):
+        currentData = self.data[dataID]
+        if optMode == 'pre':
+            beginIndex = currentData[ModelOptimize.label['x']].first_valid_index()
+            endIndex = offset
+        elif optMode == 'post':
+            beginIndex = offset
+            endIndex = currentData[ModelOptimize.label['x']].last_valid_index()
+        elif optMode == 'all':
+            beginIndex = currentData[ModelOptimize.label['x']].first_valid_index()
+            endIndex = currentData[ModelOptimize.label['x']].last_valid_index()
+        else:
+            raise Exception("Model Wrapper: Optimization mode not correctly set")
+
+        return beginIndex, endIndex
 
 class ModelConfiguration(object):
 
@@ -478,7 +514,6 @@ class ModelConfiguration(object):
         self.saveDir = modelwrapper.saveDir
         self.configurations = {}
         self.loadCurrentID()
-
 
     def loadCurrentID(self):
         IDs = self.loadConfIDs()
@@ -523,7 +558,24 @@ class ModelConfiguration(object):
         self.incConfID()
         return self.confID()-1
 
+    @staticmethod
+    def packConfiguration(configuration):
+        zVarList = ['v','delta','omega']
+        qVarList = ['q','m','I','eta0','k','d','beta','fx','fy']
+        z0 = []
+        q0 = []
+        for var in zVarList:
+            z0.append(configuration[var])
+        for var in qVarList:
+            q0.append(configuration[var])
+        configuration['q0'] = q0
+        configuration['z0'] = z0
+        return configuration
+
     def jsonSaveConfiguration(self,ID):
+        #Data Compatibility with model
+        self.configurations[ID] = self.packConfiguration(self.configurations[ID])
+
         fileName = 'config-' + str(ID) + '.json'
         savePath = os.path.join(self.saveDir, 'configurations',fileName)
         with open(savePath, 'w') as file:
@@ -531,13 +583,17 @@ class ModelConfiguration(object):
             self.configurations.pop(ID, None)
         return fileName
 
+    def jsonLoadConfigurations(self,IDs):
+        for ID in IDs:
+            self.jsonLoadConfiguration(ID)
+
     def jsonLoadConfiguration(self,ID):
-        configPath = os.path.join(self.saveDir, 'configurations')
+        configPath = os.path.join(self.saveDir, 'configurations','config-' + str(ID) + '.json')
         if os.path.isfile(configPath):
-            with open(os.path.join(configPath,'config' + str(ID) + '.json'), 'r') as file:
+            with open(configPath, 'r') as file:
                 self.configurations[ID] = json.load(file)
         else:
-            raise Exception("ModelConfiguration: Not valid configuration file")
+            raise Exception("ModelConfiguration: Not valid configuration file ID: " + str(ID))
 
     def jsonLoadTemplate(self, fileName = 'template'):
         configPath = os.path.join(os.path.dirname(self.saveDir),fileName + '.json')
@@ -548,12 +604,10 @@ class ModelConfiguration(object):
         else:
             raise Exception("ModelConfiguration: Not valid configuration file")
 
-    def generateConfiguration(self, var):
+    def generateConfiguration(self, template):
         ID = self.newConfID()
-        for key in var.keys():
-            self.template[key] = var[key]
-        self.configurations[ID] = copy.copy(self.template)
-        return ID
+        self.configurations[ID] = copy.copy(template)
+        return self.jsonSaveConfiguration(ID)
 
     def loadConfIDs(self):
         IDs = []
@@ -569,7 +623,141 @@ class ModelConfiguration(object):
             confNames.append(fileName)
         return confNames
 
+    def setConfValues(self, beginIndex, dataID, confID, variables):
+        for var in variables:
+            self.configurations[confID][var] = self.modelwrapper.data[dataID].ix[beginIndex, ModelOptimize.label[var]]
+
 class ModelOptimize(object):
+
+    class Optimizer(object):
+
+        def __init__(self, dataIDs, indVarOpt, sharedVarOpt, kwargs):
+            self.dataIDs = dataIDs
+            self.indVarOpt = indVarOpt
+            self.sharedVarOpt = sharedVarOpt
+            self.templates = {}
+            self.masterTemplate = {}
+            self.currentTrial = {}
+            self.varIdentifier = OrderedDict()
+            self.beginIndex = {}
+            self.endIndex = {}
+            self.trialNum = 0
+            self.bounds = None
+            self.modelName = ''
+
+            for var in kwargs:
+                setattr(self, var, kwargs[var])
+
+        def setTrial(self, modelID, dataID):
+            self.currentTrial[dataID] = modelID
+
+        def setTrials(self, modelID):
+            for dataID in self.dataIDs:
+                self.setTrial(modelID, dataID)
+
+        def setTemplate(self, template, dataID):
+            self.templates[dataID] = copy.copy(template)
+
+        def setTemplates(self, template):
+            self.masterTemplate = copy.copy(template)
+            for dataID in self.dataIDs:
+                self.setTemplate(template, dataID)
+
+        def setIndex(self, dataID, data):
+            if hasattr(self,'optMode'):
+                if self.optMode == 'pre':
+                    self.beginIndex[dataID] = data[ModelOptimize.label['x']].first_valid_index()
+                    self.endIndex[dataID] = self.offset
+                elif self.optMode == 'post':
+                    self.beginIndex[dataID] = self.offset
+                    self.endIndex[dataID] = data[ModelOptimize.label['x']].last_valid_index()
+            else:
+                raise Exception("Model Optimize: Optimizer: No optimization mode set")
+
+        def setIndexes(self, data):
+            for dataID in self.dataIDs:
+                self.setIndex(dataID, data[dataID])
+
+        def setInitialValue(self, dataID, data):
+            template = self.templates[dataID]
+            for var in self.uptakeValues:
+                template[var] = data.ix[self.beginIndex[dataID], ModelOptimize.label[var]]
+
+        def setInitialValues(self, data):
+            for dataID in self.dataIDs:
+                self.setInitialValue(dataID, data[dataID])
+
+        def refreshOptimizer(self, modelID, template, data):
+            self.templates = {}
+            self.currentTrial = {}
+            self.setTrials(modelID)
+            self.setTemplates(template)
+            self.setIndexes(data)
+            self.setInitialValues(data)
+
+        def propagateSharedVar(self):
+            for var in self.sharedVarOpt:
+                for dataID in self.dataIDs:
+                    self.templates[dataID][var] = self.masterTemplate[var]
+
+        def updateBoundVar(self, var, x0Max, x0Min):
+            if var in ModelOptimize.boundValues:
+                boundValue = ModelOptimize.boundValues[var]
+                x0Max.append(boundValue[1])
+                x0Min.append(boundValue[0])
+            else:
+                x0Max.append(np.inf)
+                x0Min.append(-np.inf)
+            return x0Max, x0Min
+
+        def returnDecVar(self):
+            x0 = []
+            x0Max = []
+            x0Min = []
+            self.varIdentifier = OrderedDict()
+
+            for var in self.sharedVarOpt:
+                x0.append(self.masterTemplate[var])
+                self.varIdentifier[var] = self.masterTemplate[var]
+                x0Max, x0Min = self.updateBoundVar(var, x0Max, x0Min)
+
+            for var in self.indVarOpt:
+                x0Max, x0Min = self.updateBoundVar(var, x0Max, x0Min)
+                varList = []
+                for dataID in self.dataIDs:
+                    x0.append(self.templates[dataID][var])
+                    varList.append(self.templates[dataID][var])
+                self.varIdentifier[var] = varList
+
+            return x0
+
+        def updateDecVar(self, x0):
+            self.trialNum += 1
+            print self.trialNum
+            i = 0
+            for var in self.varIdentifier:
+                if var in self.sharedVarOpt:
+                    self.masterTemplate[var] = x0[i]
+                    i += 1
+                elif var in self.indVarOpt:
+                    for j in range(0,len(self.dataIDs)):
+                        self.templates[self.dataIDs[j]][var] = x0[i]
+                        i += 1
+                else:
+                    raise Exception("Model Optimize: Optimizer: var not found in shared or individual list")
+            self.propagateSharedVar()
+
+    class Bounds(object):
+        def __init__(self, xmax, xmin):
+            self.xmax = np.array(xmax)
+            self.xmin = np.array(xmin)
+
+        def __call__(self, **kwargs):
+            x = kwargs["x_new"]
+            tmax = bool(np.all(x <= self.xmax))
+            tmin = bool(np.all(x >= self.xmin))
+            return tmax and tmin
+
 
     #Penalty for missing a data point per index
     MISSING_PENALTY = 100
@@ -599,14 +787,7 @@ class ModelOptimize(object):
         21:"TarsusBody1_y",
         22:"TarsusBody2_y",
         23:"TarsusBody3_y",
-        24:"
-
-
-
-
-
-
-        TarsusBody4_y",
+        24:"TarsusBody4_y",
         25:"TarsusBody5_y",
         26:"TarsusBody6_y",
         27:"TarsusCombined_x",
@@ -643,7 +824,6 @@ class ModelOptimize(object):
         58:"Roach_xv_residual",
     }
 
-
     label = {
         'x':'Roach_x',
         'y':'Roach_y',
@@ -651,10 +831,15 @@ class ModelOptimize(object):
         'theta':'Roach_theta',
         'omega':'Roach_dtheta'}
 
+    boundValues = {
+        'x':(-10,10),
+        'y':(-10,10)
+            }
+
     parmList = ["t","theta","x","y","fx","fy","v","delta","omega"]
 
     #TO DO: move to functions
-    indexValues = {'begin':0,'end':200,'offset':283}
+    indexValues = {'begin':0,'end':50,'offset':283}
 
     varCost=['x','y']
 
@@ -664,8 +849,8 @@ class ModelOptimize(object):
         ms = mp.ModelStreamer()
         self.stream1, self.stream2 = ms.createConnection()
         self.optimizationData = {}
-        self.dataIDs = []
         self.treatments = pd.read_pickle('treatments.pckl')
+        self.varOpt = None
         #self.varOpt = ['x','y','v','theta','omega']
 
     def displayBestTrial(self):
@@ -676,12 +861,10 @@ class ModelOptimize(object):
         print 'Best trial: ' + str(bestIndex)
         self.stream1.write(dict(x=list(bestOB['x']), y=list(bestOB['y'])))
 
-    def runTemplate(self,templateName):
+    def runTemplate(self,templateName, varOpt):
         template = self.mc.jsonLoadTemplate(templateName)
-        template = self.modelwrapper.packConfiguration(template)
-        x0 = self.initialGuess(template)
-        ID = self.modelwrapper.runTrial("lls.LLS",self.mc.jsonSaveConfiguration(self.mc.generateConfiguration(template)),ModelOptimize.parmList)
-        return x0, ID
+        varOpt.refreshOptimizer(-1,template,self.modelwrapper.data)
+        return varOpt
 
     @staticmethod
     def checkModelIndex(observation, i):
@@ -699,20 +882,40 @@ class ModelOptimize(object):
                 return True
     '''
 
-    def cost(self,x0):
-        observation = self.modelwrapper.observations[self.modelwrapper.trialID()-1]
+    def updateModel(self, x0):
+        self.varOpt.updateDecVar(x0)
+        for dataID in self.varOpt.dataIDs:
+            ID = self.modelwrapper.runTrial(self.modelName,self.mc.generateConfiguration(self.varOpt.templates[dataID]),ModelOptimize.parmList, dataID)
+            self.varOpt.currentTrial[dataID] = ID
+            self.modelwrapper.updateDataID(ID,dataID)
+            #Arbitrary large value
+            self.modelwrapper.updateCost(ID, 99999999.00)
+
+    def updateModelCosts(self, f):
+        for dataID in self.varOpt.dataIDs:
+            self.modelwrapper.updateCost(self.varOpt.currentTrial[dataID], f)
+
+    @staticmethod
+    def exponentialDecay(x, offset): return 100*math.exp(math.log(.5)/50*(offset-x))
+
+    def cost(self, x0):
+        self.updateModel(x0)
         summation = 0.0
-        for i in range(ModelOptimize.indexValues['begin'],ModelOptimize.indexValues['end']+1):
-            if ModelOptimize.checkModelIndex(observation,i):
-                currentDiff = []
-                for var in ModelOptimize.varCost:
-                    dataName = ModelOptimize.label[var]
-                    for dataID in self.optimizationData.keys():
-                        summation += (float(self.optimizationData[dataID].ix[i + ModelOptimize.indexValues['offset'], dataName]) - float(observation.ix[i, var]))**2
+
+        for dataID in self.varOpt.dataIDs:
+            observation = self.modelwrapper.observations[self.varOpt.currentTrial[dataID]]
+            for i in range(self.varOpt.beginIndex[dataID],self.varOpt.endIndex[dataID]+1):
+                if ModelOptimize.checkModelIndex(observation,i):
+                    for var in ModelOptimize.varCost:
+                        dataName = ModelOptimize.label[var]
+                        summation += (float(self.optimizationData[dataID].ix[i, dataName]) - float(observation.ix[i - self.varOpt.beginIndex[dataID], var]))**2 \
+                        * ModelOptimize.exponentialDecay(ModelOptimize.indexValues['offset'],i)
                         if np.isnan(summation):
-                            raise Exception("ModeOptimize: not valid row missing data: " + str(dataID) + ' i: ' + str(i))
-            else:
-                summation += ModelOptimize.MISSING_PENALTY
+                            raise Exception("ModeOptimize: not valid row missing data: " + str(dataID) + ' i: ' + str(i + ModelOptimize.indexValues['offset']))
+                else:
+                    summation += ModelOptimize.MISSING_PENALTY
+        self.updateModelCosts(summation)
+        self.modelwrapper.saveTables()
         return summation
 
     #The minimizer just returns values
@@ -722,7 +925,7 @@ class ModelOptimize(object):
 
     #Used to stream data to plotly
     #TO DO: handle modle optmization plots
-    def streamTrial(self,ID):
+    def streamTrials(self,ID):
         observation = self.modelwrapper.observations[ID]
         k=[]
         j=[]
@@ -743,37 +946,12 @@ class ModelOptimize(object):
         self.stream1.write(dict(x=k, y=j))
         self.stream2.write(dict(x=h, y=l))
 
-    #Used in basinhopping callback
-    #ModelWrapper hook
-    def modelSimulate(self, x, f, record):
-        #print f
-        variables = {}
-        for i in range(x.size):
-            variables[self.varOpt[i]] = x[i]
-        confID = self.mc.generateConfiguration(variables)
-        confFile = self.mc.jsonSaveConfiguration(confID)
-        ID = self.modelwrapper.runTrial("lls.LLS",confFile,ModelOptimize.parmList)
-        if ID % 20 == 0:
-            self.streamTrial(ID)
-        self.modelwrapper.updateCost(ID-1, f)
-        self.modelwrapper.updateDataIDs(ID,self.optimizationData.keys())
-        #Arbitrary large value
-        self.modelwrapper.updateCost(ID, 1000000.00)
-
-    def initialGuess(self,template):
-        x0 = []
-        for var in self.varOpt:
-            x0.append(template[var])
-        return x0
-
     def optimizationLoop(self, x0):
         minimizer_kwargs = {"method":ModelOptimize.noChange, "jac":False}
         try:
-            #self.setSPOVars()
-            #cost_ = lambda x : self.cost(x)
-            ret = spo.basinhopping(self.cost,x0,minimizer_kwargs=minimizer_kwargs, \
-            niter=100,callback=self.modelSimulate,T=10.,stepsize=2.,interval=2)
-            print ret
+            ret = spo.basinhopping(self.cost,x0,minimizer_kwargs=minimizer_kwargs, accept_test=self.varOpt.bounds, \
+            niter=self.varOpt.iterations,T=10.,stepsize=1.,interval=1)
+            #print ret
         except KeyboardInterrupt:
             print "exit optimization"
 
@@ -781,13 +959,15 @@ class ModelOptimize(object):
         for dataID in dataIDs:
             self.optimizationData[dataID] = self.modelwrapper.data[dataID]
 
-    def runOptimize(self, modelName, template, indVarOpt, sharedVarOpt, dataIDs):
-        x0, configID = self.runTemplate(template)
+    def runOptimize(self, modelName, template, indVarOpt, sharedVarOpt, dataIDs, **kwargs):
         self.modelwrapper.csvLoadData(dataIDs)
+        self.modelName = modelName
+        optVar= ModelOptimize.Optimizer(dataIDs, indVarOpt, sharedVarOpt, kwargs)
+        self.varOpt = self.runTemplate(template, optVar)
         self.setOptimizationData(dataIDs)
-        self.optimizationLoop(x0)
-        self.modelwrapper.csvReleaseData(dataIDs)
-        self.optimizationData = {}
+        self.optimizationLoop(optVar.returnDecVar())
+        #self.modelwrapper.csvReleaseData(dataIDs)
+        #self.optimizationData = {}
 
     def findDataIDs(self, animalID = None, treatmentType = None):
         if animalID == None:
@@ -797,22 +977,22 @@ class ModelOptimize(object):
         else:
             return list(self.treatments.query('Treatment == "' + treatmentType + '" and AnimalID == ' + str(animalID)).index)
 
-    '''
-    def runOptimizeAnimal(self, modelName, template, animalID, treatmentTypes):
+    def runOptimizeAnimal(self, modelName, template, animalID, treatmentTypes, indVarOpt, sharedVarOpt, **kwargs):
         dataIDs = []
         for treatmentType in treatmentTypes:
             dataIDs += self.findDataIDs(animalID, treatmentType)
-        print dataIDs
-        self.runOptimize(modelName, template, dataIDs)
-    '''
+        self.runOptimize(modelName, template, indVarOpt, sharedVarOpt, dataIDs, **kwargs)
 
 if __name__ == "__main__":
     mw = ModelWrapper()
     mo = ModelOptimize(mw)
     mc2 = ModelConfiguration(mw)
 
-    mo.runOptimize("lls.LLStoPuck","template",['x','y','v'],['k'],[0,1,2])
-    #mo.runOptimizeAnimal("lls.LLS","template",2,['control','mass'])
+    kwargs = {'offset':283,'optMode':'pre', 'uptakeValues':['x','y','theta']}
+
+    mo.runOptimize("lls.LLStoPuck","template",['x','y'],['k'],[0],**kwargs)
+    #mo.runOptimizeAnimal("lls.LLS","template",2,['control','mass'],['x','y'],['k'],**kwargs)
+    #mo.runOptimizeAnimal("lls.LLS","template",2,['control','mass'],['x','y'],['k'])
     #mo.displayBestTrial()
     #print mo.treatments
 
@@ -827,14 +1007,13 @@ if __name__ == "__main__":
     #Vars = {}
     #Vars['d'] = -0.3
     #tprint mc.loadConfNames()
-    #mc.jsonSaveConfiguration(mc.generateConfiguration(Vars))
-    #mc.jsonSaveConfiguration(mc.generateConfiguration(Vars))
+    #mc.jsonSaveConfiguration(mc.uration(Vars))
+    #mc.jsonSaveConfiguration(mc.uration(Vars))
 
     #testKey = test.keys()
     #test = dict(test.pop("21", None))
     #print test
     #mc.jsonConfigurations(test)
-
 
     #print dict(test)
 

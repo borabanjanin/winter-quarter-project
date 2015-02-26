@@ -51,7 +51,10 @@ class LLS(hds.HDS):
     self.accel = lambda t,x,q : np.zeros((x.shape[0],3))
     self.x0 = None
     self.q0 = None
+    #TO DO: Fix model theta
+    self.p['theta'] = self.p['theta'] - np.pi/2
     self.initExtrinsic()
+
 
   def initExtrinsic(self):
     """
@@ -114,7 +117,7 @@ class LLS(hds.HDS):
           -dV*(y + d*np.cos(theta) - fy)/(m*eta) + acc[1],
           -dV*d*((x - fx)*np.cos(theta)
                - (y - fy)*np.sin(theta))/(I*eta) + acc[2]]
-               
+
     return dx
 
   def obs(self):
@@ -127,7 +130,11 @@ class LLS(hds.HDS):
 
     for t,x,q in zip(self.t,self.x,self.q):
       # perturbation
-      acc = self.accel(t,x,q)
+
+      acc = []
+      for i in range(len(t)):
+          acc.append(self.accel(t[i],x,q))
+
       # unpack params
       q,m,I,eta0,k,d,beta,fx,fy = q
       # pre-allocate
@@ -339,36 +346,6 @@ class LLS(hds.HDS):
 
     return self.step(z, q)
 
-  '''
-  def animate(fig=None,data=None):
-    if fig == None or data == None:
-        print "Nothing to plot"
-        return
-
-    r = 1.01
-
-    def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
-        theta = 2*np.pi/(N-1)*np.arange(N)
-        xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
-        ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
-        return xs, ys
-
-    x = data['x']
-    y = data['y']
-    theta = data['theta']
-    fig = data['fig']
-
-    for k in range(x.size):
-        Lcom.set_xdata(x[k])
-        Lcom.set_ydata(y[k])
-        Lft.set_xdata([x[k],fx[k]])
-        Lft.set_ydata([y[k],fy[k]])
-        Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
-        Ecom.set_xdata(Ex)
-        Ecom.set_ydata(Ey)
-        fig.canvas.draw()
-  '''
-
   def plot(self,o=None,dt=1e-3,fign=-1,clf=True,axs0={},ls='-',ms='.',
                 alpha=1.,lw=2.,fill=True,legend=True,color='k',
            plots=['2d','v','E'],label=None,cvt={'t':1000,'acc':1./981}):
@@ -563,6 +540,22 @@ class LLS(hds.HDS):
     return z, q
 
 class LLStoPuck(LLS):
+  def __init__(self,config):
+    """
+    LLS  LLS hybrid system
+    """
+    op = opt.Opt()
+    #op.pars(fi=config) TO DO: DEPRECIATED FORMAT
+    #self.p = op.p
+    self.p = config
+    super(LLS, self).__init__(self.p['dt'])
+    self.name = 'LLStoPuck'
+    self.accel = lambda t,x,q : np.zeros((x.shape[0],3))
+    self.x0 = None
+    self.q0 = None
+    #TO DO: Fix model theta
+    self.p['theta'] = self.p['theta'] + np.pi/2
+    self.initExtrinsic()
 
   def dVdeta(self, eta, q):
     """

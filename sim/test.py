@@ -1,38 +1,58 @@
-from moi import latpert as lp # modify this or make MOI a module
-import pandas as pd
-'''
-tmts = {"control":range(0,51),"mass":range(52,97),"inertia":range(97,131)}
+import modelwrapper as mp
+import matplotlib.pyplot as plt
+import os
 
+mw = mp.ModelWrapper('TEST2')
+mo = mp.ModelOptimize(mw)
+mc = mp.ModelConfiguration(mw)
 
-animIDs = [8, 4, 4, 6, 6, 8, 8, 8, 4, 4, 4, 7, 7, 7, 7, 7, 3, 2, 2, 2, 2, 6, 2,
-       2, 2, 2, 2, 4, 4, 4, 4, 6, 6, 6, 6, 6, 6, 8, 8, 8, 8, 8, 9, 9, 9, 9,
-       9, 9, 9, 9, 9, 9, 8, 4, 4, 4, 4, 4, 6, 6, 8, 8, 8, 8, 7, 4, 3, 3, 5,
-       5, 5, 5, 5, 5, 5, 9, 9, 5, 2, 2, 2, 2, 2, 2, 2, 7, 9, 9, 9, 9, 9, 2,
-       8, 8, 4, 6, 6, 4, 4, 4, 4, 6, 6, 6, 8, 8, 8, 7, 7, 2, 2, 2, 2, 2, 2,
-       2, 1, 1, 1, 1, 1, 1, 1, 1, 9, 6, 4, 4, 8, 9, 9]
+dataIDs = [0,1,2]
 
-treatments = pd.DataFrame(columns=('AnimalID','Treatment','Directory'),index=range(0,131))
+kwargs = {'offset':283,'optMode':'pre', 'uptakeValues':['x','y','theta','v'], 'iterations':10}
 
-for trt in tmts:
-    for i in tmts[trt]:
-        #print i
-        treatments.loc[i] = [animIDs[i], trt, lp.rr[i].name]
+#mw.csvLoadData(dataIDs)
 
-#print len(animIDs)
+for dataID in dataIDs:
+    mo.runOptimize("lls.LLStoPuck","template",['x','y', 'theta'],[],[dataID],**kwargs)
+    #mw.saveTables()
 
-treatments.to_pickle('treatments.pckl')
-'''
+bestTrials = []
+for dataID in dataIDs:
+    dataIDData = mw.trials.query('DataID == ' + str(dataID))['Cost'].idxmin(1)
+    bestTrials.append(dataIDData)
 
-treatments = pd.read_pickle('treatments.pckl')
+mw.csvLoadObs(bestTrials)
+mc.jsonLoadConfigurations(bestTrials)
 
-def findDataIDs(animalID = None, treatmentType = None):
-    if animalID == None:
-        return list(treatments.query('Treatment == "' + treatmentType + '"').index)
-    elif treatmentType == None:
-        return list(treatments.query('AnimalID == ' + str(animalID)).index)
-    else:
-        return list(treatments.query('Treatment == "' + treatmentType + '" and AnimalID == ' + str(animalID)).index)
+for i in range(len(dataIDs)):
+    mc.setConfValues(kwargs['offset'], dataIDs[i], bestTrials[i], ['x','y','theta'])
+    mc.packConfiguration(mc.configurations[bestTrials[i]])
 
-print treatments
+pertModel = []
+for confID in bestTrials:
+    pertModel.append(mw.runTrial("lls.LLStoPuck",mc.configurations[confID],mp.ModelOptimize.parmList, dataID))
 
-#print treatments.query('Treatment == "control" and AnimalID == 8').index
+for i in range(len(dataIDs)):
+    beginIndex, endIndex = mw.findDataIndex(dataIDs[i], kwargs['offset'], 'pre')
+    dataX = mw.data[dataIDs[i]][mo.label['x']][beginIndex:endIndex+1]
+    dataY = mw.data[dataIDs[i]][mo.label['y']][beginIndex:endIndex+1]
+    obsX = mw.observations[bestTrials[i]]['x'][0:endIndex+1-beginIndex]
+    obsY = mw.observations[bestTrials[i]]['y'][0:endIndex+1-beginIndex]
+    plt.plot(dataX,dataY,'r--',obsX,obsY,'b--')
+    plt.show()
+    plt.savefig(os.path.join(mw.saveDir,'pre-'+str(i)+".png"))
+    plt.clf()
+
+for i in range(len(dataIDs)):
+
+    beginIndex, endIndex = mw.findDataIndex(dataIDs[i], kwargs['offset'], 'post')
+    dataX = mw.data[dataIDs[i]][mo.label['x']][beginIndex:endIndex+1]
+    dataY = mw.data[dataIDs[i]][mo.label['y']][beginIndex:endIndex+1]
+    obsX = mw.observations[pertModel[i]]['x'][0:endIndex+1-beginIndex]
+    obsY = mw.observations[pertModel[i]]['y'][0:endIndex+1-beginIndex]
+    plt.plot(dataX,dataY,'r--',obsX,obsY,'b--')
+    plt.show()
+    plt.savefig(os.path.join(mw.saveDir,'post-'+str(i)+".png"))
+    plt.clf()
+
+mw.saveTables()
