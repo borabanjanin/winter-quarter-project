@@ -20,12 +20,12 @@ import modelwrapper as model
 from shrevz import tk
 import os
 
-import plotly.plotly as py
-from plotly.graph_objs import *# auto sign-in with credentials or use py.sign_in()
-import plotly.tools as tls
+#import plotly.plotly as py
+#from plotly.graph_objs import *# auto sign-in with credentials or use py.sign_in()
+#import plotly.tools as tls
 import time
 
-
+'''
 class ModelStreamer(object):
     def __init__(self):
         tls.set_credentials_file(stream_ids=[ \
@@ -79,8 +79,7 @@ class ModelStreamer(object):
     def __del__(self):
         for stream in self.streams:
             stream.close
-
-
+'''
 
 class ModelPlot(object):
     def __init__(self, modelwrapper):
@@ -139,11 +138,56 @@ class ModelPlot(object):
         data = pd.Series(varList,index=range(len(varList)))
         return min(data)
 
-    def combineObs(self,variable,stat):
-        pd.DataFrame(columns=variable,index=range(dataSize))
-        length = minDataLength(modelwrapper.observations)
-        for ID in self.modelwrapper.observations:
-            print self.modelwrapper.observations[ID][variable].quantile(.75)
+    def findObsOffset(self, observation, offsetMode):
+        if isinstance(offsetMode, int):
+            if len(observation.index) - 1 < offsetMode:
+                return len(observation.index) - 1
+            else:
+                return offsetMode
+        elif offsetMode == None:
+            return 0
+        else:
+            raise Exception("ModelPlot: Improper offsetMode passed")
+
+    def combineObs(self, obsIDs, offsetMode):
+        self.modelwrapper.csvLoadObs(obsIDs)
+        observations = self.modelwrapper.observations
+        columnList = list(observations[obsIDs[0]].columns.values)
+        columnList.insert(0,'SampleID')
+        obsTable = pd.DataFrame(columns=columnList)
+        for i in range(len(obsIDs)):
+            obsID = obsIDs[i]
+            offset = self.findObsOffset(observations[obsID], offsetMode)
+            currentObsTable = pd.DataFrame(columns=columnList)
+            for j in observations[obsID].index:
+                sampleID = j-offset
+                currentRow = list(observations[obsID].loc[j])
+                currentRow.insert(0,sampleID)
+                currentObsTable.loc[j] = currentRow
+            obsTable = pd.concat([obsTable, currentObsTable])
+        self.modelwrapper.csvReleaseObs(obsIDs)
+        return obsTable
+
+    def combineData(self, dataIDs, offset):
+        self.modelwrapper.csvLoadData(dataIDs)
+        data = self.modelwrapper.data
+        columnList = list(data[dataIDs[0]].columns.values)
+        columnList.insert(0,'SampleID')
+        dataTable = pd.DataFrame(columns=columnList)
+        for i in range(len(dataIDs)):
+            dataID = dataIDs[i]
+            beginIndex, endIndex = self.modelwrapper.findDataIndex(dataID, offset, 'all')
+            currentDataTable = pd.DataFrame(columns=columnList)
+            for j in range(beginIndex,endIndex+1):
+                sampleID = int(j-offset)
+                currentRow = list(data[dataID].loc[j])
+                currentRow.insert(0,sampleID)
+                currentDataTable.loc[j] = currentRow
+            dataTable = pd.concat([dataTable, currentDataTable])
+        self.modelwrapper.csvReleaseData(dataIDs)
+        return dataTable
+
+        #pd.DataFrame(columns=variable,index=range(dataSize))
 
     #def plotQuantile(self,variable,)
 
@@ -353,9 +397,10 @@ class ModelAnimate(object):
         self.modelwrapper.csvReleaseObs(IDs)
 
 if __name__ == "__main__":
-    mw = model.ModelWrapper()
+    mw = model.ModelWrapper('BestTrials-1k')
     mp = ModelPlot(mw)
-    mp.combineObs('x','75')
+    #mp.combineObs([0,1],283)
+    mp.combineData([0,1],283)
     #ma = ModelAnimate(mw.observations)
     #ma.animateTrialID([0, 1])
-    print "happy"
+    #print "happy"

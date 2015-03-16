@@ -52,7 +52,7 @@ class LLS(hds.HDS):
     self.x0 = None
     self.q0 = None
     #TO DO: Fix model theta
-    self.p['theta'] = self.p['theta'] - np.pi/2
+    self.p['theta'] = self.p['theta'] + np.pi/2
     self.initExtrinsic()
 
 

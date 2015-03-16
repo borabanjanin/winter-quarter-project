@@ -19,7 +19,7 @@ import scipy.optimize as spo
 import lls as lls
 import puck as puck
 from opt import opt
-import modelplot as mp
+#import modelplot as mp
 
 from util import num
 
@@ -372,7 +372,7 @@ class ModelWrapper(object):
         beginIndex, endIndex = self.findDataIndex(dataID, None, 'all')
         accelData = np.array(self.data[dataID].ix[beginIndex:endIndex-2, "CartAcceleration"])
         timeData = np.array(np.linspace(beginIndex*dt,(endIndex-2)*dt,endIndex-1-beginIndex))
-        model.accel = ( lambda s,i,j : np.array([0.,num.interp1(np.array([s]),timeData,accelData),0.]))
+        model.accel = ( lambda s,i,j : np.array([0.,-num.interp1(np.array([s]),timeData,accelData),0.]))
         #mw.data[dataID].ix[beginIndex:endIndex-2, "CartAcceleration"]
         #model.accel = ( lambda s,i,j : np.array([0.,num.interp1(s,t,self.data[dataID]),0.]) )
         return model
@@ -505,6 +505,11 @@ class ModelWrapper(object):
 
         return beginIndex, endIndex
 
+    def findObsIndex(self, obsID):
+        beginIndex = self.observations[obsID]['x'].first_valid_index()
+        endIndex = self.observations[obsID]['x'].last_valid_index()
+        return beginIndex, endIndex
+
 class ModelConfiguration(object):
 
     def __init__(self, modelwrapper,template = None):
@@ -623,9 +628,19 @@ class ModelConfiguration(object):
             confNames.append(fileName)
         return confNames
 
-    def setConfValues(self, beginIndex, dataID, confID, variables):
+    def setConfValuesData(self, beginIndex, dataID, confID, variables):
         for var in variables:
             self.configurations[confID][var] = self.modelwrapper.data[dataID].ix[beginIndex, ModelOptimize.label[var]]
+
+    def setConfValuesObs(self, beginIndex, obsID, confID, variables):
+
+        #print self.modelwrapper.observations[obsID]
+        for var in variables:
+            self.configurations[confID][var] = self.modelwrapper.observations[obsID].ix[beginIndex, var]
+
+    def setRunTime(self, beginIndex, endIndex, configID):
+        configuration = self.configurations[configID]
+        configuration['t'] = (endIndex-beginIndex+1) * configuration['dt']
 
 class ModelOptimize(object):
 
@@ -687,13 +702,19 @@ class ModelOptimize(object):
             for dataID in self.dataIDs:
                 self.setInitialValue(dataID, data[dataID])
 
+        def setRunTime(self):
+            for dataID in self.dataIDs:
+                self.templates[dataID]['t'] = (self.endIndex[dataID]-self.beginIndex[dataID]+1) * self.templates[dataID]['dt']
+
         def refreshOptimizer(self, modelID, template, data):
+            self.trialNum = 0
             self.templates = {}
             self.currentTrial = {}
             self.setTrials(modelID)
             self.setTemplates(template)
             self.setIndexes(data)
             self.setInitialValues(data)
+            self.setRunTime()
 
         def propagateSharedVar(self):
             for var in self.sharedVarOpt:
@@ -703,13 +724,13 @@ class ModelOptimize(object):
         def updateBoundVar(self, var, x0Max, x0Min):
             if var in ModelOptimize.boundValues:
                 boundValue = ModelOptimize.boundValues[var]
-                x0Max.append(boundValue[1])
-                x0Min.append(boundValue[0])
+                boundMax = boundValue[1]
+                boundMin = boundValue[0]
             else:
-                x0Max.append(np.inf)
-                x0Min.append(-np.inf)
-            return x0Max, x0Min
-
+                boundMax = np.inf
+                boundMin = -np.inf
+            x0Max.append(boundMax)
+            x0Min.append(boundMin)
         def returnDecVar(self):
             x0 = []
             x0Max = []
@@ -719,21 +740,25 @@ class ModelOptimize(object):
             for var in self.sharedVarOpt:
                 x0.append(self.masterTemplate[var])
                 self.varIdentifier[var] = self.masterTemplate[var]
-                x0Max, x0Min = self.updateBoundVar(var, x0Max, x0Min)
+                self.updateBoundVar(var, x0Max, x0Min)
 
             for var in self.indVarOpt:
-                x0Max, x0Min = self.updateBoundVar(var, x0Max, x0Min)
                 varList = []
                 for dataID in self.dataIDs:
+                    self.updateBoundVar(var, x0Max, x0Min)
                     x0.append(self.templates[dataID][var])
                     varList.append(self.templates[dataID][var])
                 self.varIdentifier[var] = varList
 
+            self.bounds = ModelOptimize.Bounds(x0Max,x0Min)
+
+
             return x0
 
         def updateDecVar(self, x0):
+            print 'Iteration: ' + str(self.trialNum)
             self.trialNum += 1
-            print self.trialNum
+
             i = 0
             for var in self.varIdentifier:
                 if var in self.sharedVarOpt:
@@ -757,7 +782,6 @@ class ModelOptimize(object):
             tmax = bool(np.all(x <= self.xmax))
             tmin = bool(np.all(x >= self.xmin))
             return tmax and tmin
-
 
     #Penalty for missing a data point per index
     MISSING_PENALTY = 100
@@ -833,8 +857,16 @@ class ModelOptimize(object):
 
     boundValues = {
         'x':(-10,10),
-        'y':(-10,10)
-            }
+        'y':(-10,10),
+        'theta':(-15,15),
+        'v':(0,200),
+        'eta0':(0,5),
+        'm':(0,10),
+        'I':(0,10),
+        'k':(0,10000),
+        'beta':(0,5),
+        'delta':(-5,5),
+        'omega':(-5,5)}
 
     parmList = ["t","theta","x","y","fx","fy","v","delta","omega"]
 
@@ -846,8 +878,8 @@ class ModelOptimize(object):
     def __init__(self, modelwrapper):
         self.modelwrapper = modelwrapper
         self.mc = ModelConfiguration(modelwrapper)
-        ms = mp.ModelStreamer()
-        self.stream1, self.stream2 = ms.createConnection()
+        #ms = mp.ModelStreamer()
+        #self.stream1, self.stream2 = ms.createConnection()
         self.optimizationData = {}
         self.treatments = pd.read_pickle('treatments.pckl')
         self.varOpt = None
@@ -861,10 +893,9 @@ class ModelOptimize(object):
         print 'Best trial: ' + str(bestIndex)
         self.stream1.write(dict(x=list(bestOB['x']), y=list(bestOB['y'])))
 
-    def runTemplate(self,templateName, varOpt):
+    def createTemplate(self,templateName):
         template = self.mc.jsonLoadTemplate(templateName)
-        varOpt.refreshOptimizer(-1,template,self.modelwrapper.data)
-        return varOpt
+        self.varOpt.refreshOptimizer(-1,template, self.modelwrapper.data)
 
     @staticmethod
     def checkModelIndex(observation, i):
@@ -884,6 +915,8 @@ class ModelOptimize(object):
 
     def updateModel(self, x0):
         self.varOpt.updateDecVar(x0)
+
+
         for dataID in self.varOpt.dataIDs:
             ID = self.modelwrapper.runTrial(self.modelName,self.mc.generateConfiguration(self.varOpt.templates[dataID]),ModelOptimize.parmList, dataID)
             self.varOpt.currentTrial[dataID] = ID
@@ -898,14 +931,13 @@ class ModelOptimize(object):
     @staticmethod
     def exponentialDecay(x, offset): return 100*math.exp(math.log(.5)/50*(offset-x))
 
-    def cost(self, x0):
-        self.updateModel(x0)
+    def trajectoryCost(self):
         summation = 0.0
 
         for dataID in self.varOpt.dataIDs:
             observation = self.modelwrapper.observations[self.varOpt.currentTrial[dataID]]
             for i in range(self.varOpt.beginIndex[dataID],self.varOpt.endIndex[dataID]+1):
-                if ModelOptimize.checkModelIndex(observation,i):
+                if ModelOptimize.checkModelIndex(observation,i-self.varOpt.beginIndex[dataID]):
                     for var in ModelOptimize.varCost:
                         dataName = ModelOptimize.label[var]
                         summation += (float(self.optimizationData[dataID].ix[i, dataName]) - float(observation.ix[i - self.varOpt.beginIndex[dataID], var]))**2 \
@@ -913,15 +945,64 @@ class ModelOptimize(object):
                         if np.isnan(summation):
                             raise Exception("ModeOptimize: not valid row missing data: " + str(dataID) + ' i: ' + str(i + ModelOptimize.indexValues['offset']))
                 else:
+                    print 'WARNING: MODEL CRASHED'
                     summation += ModelOptimize.MISSING_PENALTY
-        self.updateModelCosts(summation)
-        self.modelwrapper.saveTables()
+
         return summation
 
+    def cost(self, x0):
+        self.updateModel(x0)
+        f = self.trajectoryCost()
+        self.updateModelCosts(f)
+        return f
+
     #The minimizer just returns values
-    @staticmethod
     def noChange(fun, x0, args, **options):
         return spo.OptimizeResult(x=x0, fun=fun(x0), success=True, nfev=1)
+
+
+    def step(self, currentCost, bestCost):
+        return ((bestCost - currentCost) / (self.varOpt.s * bestCost)) * self.varOpt.stepSize
+
+    def finiteDifferences(self, fun, x0, args, **options):
+        f = self.cost(x0)
+        print 'x0: ' + str(x0)
+        print 'f: ' + str(f)
+        xOpt = copy.copy(x0)
+        fj = f
+
+        for j in range(self.varOpt.gradientIterations):
+            x1 = copy.copy(xOpt)
+            for i in range(len(x0)):
+                x2 = copy.copy(xOpt)
+                x2[i] =  x1[i] + self.varOpt.s
+                f2 = self.cost(x2)
+                #x1[i] = ((fj - f2) / (self.varOpt.s * fj)) * self.varOpt.stepSize + x1[i]
+                x1[i] = self.step(f2, fj) + x1[i]
+            f1 = self.cost(x1)
+            if f1 < fj:
+                print 'Minimized'
+                fj = f1
+                xOpt = copy.copy(x1)
+            else:
+                break
+        fOpt = fj
+
+        '''
+        for i in range(len(x0)):
+            x1 = copy.copy(x0)
+            x1[i] =  x0[i] + self.varOpt.s
+            fi = self.cost(x1)
+            xOpt[i] = ((fj - fi) / (self.varOpt.s * fj)) * self.varOpt.stepSize + x0[i]
+        fOpt = self.cost(xOpt)
+        '''
+
+        print 'xOpt: ' + str(xOpt)
+        print 'fOpt: ' + str(fOpt)
+        if fOpt < f:
+            return spo.OptimizeResult(x=xOpt, fun=fOpt, success=True, nfev=self.varOpt.gradientIterations)
+        else:
+            return spo.OptimizeResult(x=x0, fun=f, success=True, nfev=self.varOpt.gradientIterations)
 
     #Used to stream data to plotly
     #TO DO: handle modle optmization plots
@@ -947,10 +1028,10 @@ class ModelOptimize(object):
         self.stream2.write(dict(x=h, y=l))
 
     def optimizationLoop(self, x0):
-        minimizer_kwargs = {"method":ModelOptimize.noChange, "jac":False}
+        minimizer_kwargs = {"method":self.finiteDifferences, "jac":False}
         try:
             ret = spo.basinhopping(self.cost,x0,minimizer_kwargs=minimizer_kwargs, accept_test=self.varOpt.bounds, \
-            niter=self.varOpt.iterations,T=10.,stepsize=1.,interval=1)
+            niter=self.varOpt.iterations,T=10.,stepsize=5.,interval=1)
             #print ret
         except KeyboardInterrupt:
             print "exit optimization"
@@ -962,10 +1043,10 @@ class ModelOptimize(object):
     def runOptimize(self, modelName, template, indVarOpt, sharedVarOpt, dataIDs, **kwargs):
         self.modelwrapper.csvLoadData(dataIDs)
         self.modelName = modelName
-        optVar= ModelOptimize.Optimizer(dataIDs, indVarOpt, sharedVarOpt, kwargs)
-        self.varOpt = self.runTemplate(template, optVar)
+        self.varOpt = ModelOptimize.Optimizer(dataIDs, indVarOpt, sharedVarOpt, kwargs)
+        self.createTemplate(template)
         self.setOptimizationData(dataIDs)
-        self.optimizationLoop(optVar.returnDecVar())
+        self.optimizationLoop(self.varOpt.returnDecVar())
         #self.modelwrapper.csvReleaseData(dataIDs)
         #self.optimizationData = {}
 
@@ -981,6 +1062,7 @@ class ModelOptimize(object):
         dataIDs = []
         for treatmentType in treatmentTypes:
             dataIDs += self.findDataIDs(animalID, treatmentType)
+        print 'dataIDs: ' + str(dataIDs)
         self.runOptimize(modelName, template, indVarOpt, sharedVarOpt, dataIDs, **kwargs)
 
 if __name__ == "__main__":
@@ -988,36 +1070,7 @@ if __name__ == "__main__":
     mo = ModelOptimize(mw)
     mc2 = ModelConfiguration(mw)
 
-    kwargs = {'offset':283,'optMode':'pre', 'uptakeValues':['x','y','theta']}
+    kwargs = {'offset':283,'optMode':'pre', 'uptakeValues':['x','y','theta'], 'iterations': 1, 'stepSize': 0.01, 's': 0.0000001, 'gradientIterations':10}
 
-    mo.runOptimize("lls.LLStoPuck","template",['x','y'],['k'],[0],**kwargs)
-    #mo.runOptimizeAnimal("lls.LLS","template",2,['control','mass'],['x','y'],['k'],**kwargs)
-    #mo.runOptimizeAnimal("lls.LLS","template",2,['control','mass'],['x','y'],['k'])
-    #mo.displayBestTrial()
-    #print mo.treatments
-
-    mw.csvObservations()
+    mo.runOptimize("lls.LLStoPuck","template",['x','y','theta'],[],[0],**kwargs)
     mw.saveTables()
-
-    #anim = mp.ModelAnimate(mw)
-    #anim.animateTrialID([0,1])
-
-    #mc = ModelConfiguration(mw)
-    #mc.jsonLoadTemplate('template')
-    #Vars = {}
-    #Vars['d'] = -0.3
-    #tprint mc.loadConfNames()
-    #mc.jsonSaveConfiguration(mc.uration(Vars))
-    #mc.jsonSaveConfiguration(mc.uration(Vars))
-
-    #testKey = test.keys()
-    #test = dict(test.pop("21", None))
-    #print test
-    #mc.jsonConfigurations(test)
-
-    #print dict(test)
-
-    #mw.animateTrialID([0,1,3,2])
-    #mw.animateTrialID([1])
-    #mw.runTrial("lls.LLS",template,["t","theta","x","y","fx","fy"])
-    #mw.runTrial("lls.LLS","lls.cfg",["t","x","fx","fy"])
