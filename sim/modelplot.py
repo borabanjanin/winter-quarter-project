@@ -173,6 +173,7 @@ class ModelPlot(object):
         data = self.modelwrapper.data
         columnList = list(data[dataIDs[0]].columns.values)
         columnList.insert(0,'SampleID')
+        columnList.insert(1,'DataID')
         dataTable = pd.DataFrame(columns=columnList)
         for i in range(len(dataIDs)):
             dataID = dataIDs[i]
@@ -182,6 +183,7 @@ class ModelPlot(object):
                 sampleID = int(j-offset)
                 currentRow = list(data[dataID].loc[j])
                 currentRow.insert(0,sampleID)
+                currentRow.insert(1,dataID)
                 currentDataTable.loc[j] = currentRow
             dataTable = pd.concat([dataTable, currentDataTable])
         self.modelwrapper.csvReleaseData(dataIDs)

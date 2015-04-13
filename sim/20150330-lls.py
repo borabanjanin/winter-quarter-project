@@ -63,15 +63,8 @@ class LLS(hds.HDS):
 
     #X=0.; Y=0.; theta=np.pi/2.;
     #self.x0, self.q0 = self.extrinsic(self.p['z0'], self.p['q0'], x=X, y=Y, theta=theta)
-    if np.isnan(self.p['fx']) == False and np.isnan(self.p['fy']) == False:
-        #x - 1 x 6 - (x,y,theta,dx,dy,dtheta)
-        #q - 1 x 9 - (q,m,I,eta0,k,d,beta,fx,fy)
-        self.x0, self.q0 = self.extrinsicSam(self.p['z0'], self.p['q0'],  \
-        self.p['x'], self.p['y'], self.p['theta'],[self.p['fx'],self.p['fy']])
 
-    else:
-        self.x0, self.q0 = self.extrinsicSam(self.p['z0'], self.p['q0'], self.p['x'], self.p['y'], self.p['theta'])
-
+    self.x0, self.q0 = self.extrinsic(self.p['z0'], self.p['q0'], self.p['x'], self.p['y'], self.p['theta'])
 
   def P(self, q=[1,0.0025,2.04e-7,0.017,0.53,-0.002,np.pi/4,0.,0.], debug=False):
     """
@@ -494,13 +487,15 @@ class LLS(hds.HDS):
 
     return axs
 
-  def extrinsic(self, z, q, x=0., y=0., theta=np.pi/2.):
+  def extrinsic(self, z, q, x=0., y=0., theta=np.pi/2., fb=None):
     """
     .extrinsic  extrinsic LLS state from intrinsic (i.e. Poincare map) state
 
     INPUTS:
       z - 1 x 3 - (v,delta,omega) - TD state
       q - 1 x 9 - (q,m,I,eta0,k,d,beta,.,.)
+      (optional)
+      fb - 1 x 2 - foot location in body reference frame
 
     OUTPUTS:
       x - 1 x 6 - (x,y,theta,dx,dy,dtheta)
@@ -518,71 +513,21 @@ class LLS(hds.HDS):
     # COM, hip
     c = np.array([x,y])
     h = c + d*np.array([np.sin(theta),np.cos(theta)])
-    # foot
-    f = h + eta0*np.array([np.sin(theta - beta*(-1)**q),
-                           np.cos(theta - beta*(-1)**q)])
+    if fb is not None:
+      # foot
+      f = h + eta0*np.array([np.sin(theta - beta*(-1)**q),
+                             np.cos(theta - beta*(-1)**q)])
+    else: 
+      # TODO: check this is correct rotation matrix
+      # NOTE: I'm left-multiplying, so I transposed the rotation matrix
+      f = np.dot( fb, [[np.cos(theta), -np.sin(theta)],[np.sin(theta),np.cos(theta)]]) + [x,y]
     fx = f[0]; fy = f[1]
     # pack params, state
     x = np.array([x,y,theta,dx,dy,dtheta])
     q = np.array([q,m,I,eta0,k,d,beta,fx,fy])
-    return x, q
-
-  def extrinsicSam(self, z, q, x=0., y=0., theta=np.pi/2., f=None):
-    """
-    .extrinsic  extrinsic LLS state from intrinsic (i.e. Poincare map) state
-
-    INPUTS:
-      z - 1 x 3 - (v,delta,omega) - TD state
-      q - 1 x 9 - (q,m,I,eta0,k,d,beta,.,.)
-
-    OUTPUTS:
-      x - 1 x 6 - (x,y,theta,dx,dy,dtheta)
-      q - 1 x 9 - (q,m,I,eta0,k,d,beta,fx,fy)
-    """
-    # copy data
-    q = np.asarray(q).copy(); z = np.asarray(z).copy()
-    # unpack params, state
-    q,m,I,eta0,k,d,beta,_,_ = q
-    v,delta,omega = z
-    # extrinsic state variables
-    dx = v*np.sin(theta + delta)
-    dy = v*np.cos(theta + delta)
-    dtheta = omega
-    # COM, hip
-    c = np.array([x,y])
-    h = c + d*np.array([np.sin(theta),np.cos(theta)])
-    if f == None:
-    #if f == None:
-        # foot
-        f = h + eta0*np.array([np.sin(theta - beta*(-1)**q),
-                               np.cos(theta - beta*(-1)**q)])
-    fx = f[0]; fy = f[1]
-    # pack params, state
-    x = np.array([x,y,theta,dx,dy,dtheta])
-    q = np.array([q,m,I,eta0,k,d,beta,fx,fy])
-
     return x, q
 
   def intrinsic(self, x, q):
-    """
-    .intrinsic  Poincare map state from from full state
-
-    Inputs:
-      x - 1 x 6 - (x,y,theta,dx,dy,dtheta)
-      q - 1 x 9 - (q,m,I,eta0,k,d,beta,fx,fy)
-
-    Outputs:
-      z - 1 x 3 - (v,delta,omega) - TD state
-      q - 1 x 9 - (q,m,I,eta0,k,d,beta,.,.)
-    """
-    x,y,theta,dx,dy,dtheta = x
-    v = np.sqrt(dx**2 + dy**2)
-    delta = np.angle(np.exp(-1j*theta)*(dy + 1j*dx))
-    omega = dtheta
-    z = np.array([v,delta,omega])
-    return z, q
-
-  def intrinsicSam(self, x, q):
     """
     .intrinsic  Poincare map state from from full state
 
@@ -602,7 +547,8 @@ class LLS(hds.HDS):
     # compute intrinsic (i.e. body-centric) velocities
     v = np.sqrt(dx**2 + dy**2)
     delta = np.angle(np.exp(-1j*theta)*(dy + 1j*dx))
-    z = np.array([v,delta,dtheta])
+    omega = dtheta
+    z = np.array([v,delta,omega])
     # compute intrinsic (i.e. body-centric) foot position
     f = np.array([fx,fy])
     c = np.array([x,y])
@@ -610,7 +556,7 @@ class LLS(hds.HDS):
     fb = [fh[0]*np.cos(-theta)  + fh[1]*np.sin(-theta),
           fh[0]*-np.sin(-theta) + fh[1]*np.cos(-theta)]
     q = np.array([q,m,I,eta0,k,d,beta,fb[0],fb[1]])
-    return z, q, fb
+    return z, q
 
 class LLStoPuck(LLS):
   def __init__(self,config):
@@ -910,120 +856,81 @@ class LLStoPuck(LLS):
     return axs
 
 if __name__ == "__main__":
-  op = opt.Opt()
-  op.pars(fi='lls.cfg')
 
-  p = op.p
+  import sys
+  args = sys.argv
 
-  dt,z0,q0,N,dbg = p['dt'],p['z0'],p['q0'],p['N'],True
-  p['x'],p['y'],p['theta'] = (0.,0.,0.)
+  op1 = opt.Opt()
+  op2 = opt.Opt()
+  op1.pars(fi='llsBora.cfg')
+  op2.pars(fi='lls.cfg')
 
-  lls = LLS(p)
-  lls.dt = 1e-2
+  p1 = op1.p
+  p2 = op2.p
+
+  dt1 = p1['dt']
+  z01 = p1['z0']
+  q01 = p1['q0']
+  N1 = p1['N']
+
+  dt2 = p2['dt']
+  z02 = p2['z0']
+  q02 = p2['q0']
+  N2 = p2['N']
+
+
+
+  lls1 = LLS('llsBora.cfg')
+  lls2 = LLS('lls.cfg')
+  dbg1  = lls1.p.get('dbg',False)
+  dbg2  = lls2.p.get('dbg',False)
+  st = time.time()
+  #z1 = lls1.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
+  #z2 = lls2.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
+  #print '%0.2fsec to find gait, z = %s' % (time.time() - st,z1)
 
   X=0.; Y=0.; theta=np.pi/2.;
   #x=np.random.randn(); y=np.random.randn(); theta=2*np.pi*np.random.rand()
-  x0, q0 = lls.extrinsic(z0, q0, x=X, y=Y, theta=theta)
+  #x0, q0 = lls.extrinsic(z, q0, x=X, y=Y, theta=theta)
+  #x01, q01 = lls1.extrinsic(z01, q01, x=X, y=Y, theta=theta)
+  t1,x1,q1 = lls1(0, 1e99, lls1.x0, lls1.q0, N1, dbg1)
+  #x02, q02 = lls2.extrinsic(z02, q02, x=X, y=Y, theta=theta)
+  t2,x,q2 = lls2(0, 1e99, lls2.x0, lls2.q0, N2, dbg2)
 
-  dt = 1./500
-  t0 = 0.
-  tf = 1e99
+  if 'plot' in args or 'anim' in args:
+    o1 = lls1.obs().resample(dt1)
+    o2 = lls2.obs().resample(dt2)
+    if 'anim' in args:
+        plot1 = DoublePlot()
+        plot2 = DoublePlot()
+        plot1.animGenerate(o1)
+        plot2.animGenerate(o2)
+        DoublePlot.plotNum = 1
 
-  t1,x1,q1 = lls(t0, tf, x0, q0, N, dbg)
-  o  = lls.obs().resample(dt)
+  KE1 = np.vstack(o1.KE)
+  KE2 = np.vstack(o2.KE)
+  PE1 = np.vstack(o1.PE)
+  PE2 = np.vstack(o2.PE)
+  testEnergy = 0
 
-  n = 5; k = 5
-  #t0_,x0_,q0_ = t1[n][k], x1[n][k], q1[n]
-  t0_,x0_,q0_ = t1[n][k], x1[n][k], q1[n]
-  t1_,x1_,q1_ = lls(t0_, tf, x0_, q0_, N, dbg)
-  o_ = lls.obs().resample(dt)
+  for i in range(len(KE1)):
+    testEnergy += ((KE1[i] - KE2[i]) + (PE1[i] - PE2[i]))
 
-  #print t1[n][k:],t1_[1][:]
-  #print x1[n][k:,3],x1_[1][:,3]
-  #print q1[n],q1_[1]
+  print "Energy difference between the models: " + str(testEnergy/len(KE1))
 
-  fig = plt.figure(1); plt.clf()
+  '''
+   Run for while both lls models have additional data points
 
-  ax = plt.subplot(111)
-  ax.plot(o.t[0],o.dx[0].flatten(),'b',lw=10)
-  ax.plot(o_.t[0],o_.dx[0].flatten(),'g',lw=4)
-
-  if 0:
-
-    import sys
-    args = sys.argv
-
-    op1 = opt.Opt()
-    op2 = opt.Opt()
-    op1.pars(fi='llsBora.cfg')
-    op2.pars(fi='lls.cfg')
-
-    p1 = op1.p
-    p2 = op2.p
-
-    dt1 = p1['dt']
-    z01 = p1['z0']
-    q01 = p1['q0']
-    N1 = p1['N']
-
-    dt2 = p2['dt']
-    z02 = p2['z0']
-    q02 = p2['q0']
-    N2 = p2['N']
-
-
-
-    lls1 = LLS('llsBora.cfg')
-    lls2 = LLS('lls.cfg')
-    dbg1  = lls1.p.get('dbg',False)
-    dbg2  = lls2.p.get('dbg',False)
-    st = time.time()
-    #z1 = lls1.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
-    #z2 = lls2.ofind(np.asarray(z01),(q02,),N=10,modes=[1])
-    #print '%0.2fsec to find gait, z = %s' % (time.time() - st,z1)
-
-    X=0.; Y=0.; theta=np.pi/2.;
-    #x=np.random.randn(); y=np.random.randn(); theta=2*np.pi*np.random.rand()
-    #x0, q0 = lls.extrinsic(z, q0, x=X, y=Y, theta=theta)
-    #x01, q01 = lls1.extrinsic(z01, q01, x=X, y=Y, theta=theta)
-    t1,x1,q1 = lls1(0, 1e99, lls1.x0, lls1.q0, N1, dbg1)
-    #x02, q02 = lls2.extrinsic(z02, q02, x=X, y=Y, theta=theta)
-    t2,x,q2 = lls2(0, 1e99, lls2.x0, lls2.q0, N2, dbg2)
-
-    if 'plot' in args or 'anim' in args:
-      o1 = lls1.obs().resample(dt1)
-      o2 = lls2.obs().resample(dt2)
-      if 'anim' in args:
-          plot1 = DoublePlot()
-          plot2 = DoublePlot()
-          plot1.animGenerate(o1)
-          plot2.animGenerate(o2)
-          DoublePlot.plotNum = 1
-
-    KE1 = np.vstack(o1.KE)
-    KE2 = np.vstack(o2.KE)
-    PE1 = np.vstack(o1.PE)
-    PE2 = np.vstack(o2.PE)
-    testEnergy = 0
-
-    for i in range(len(KE1)):
-      testEnergy += ((KE1[i] - KE2[i]) + (PE1[i] - PE2[i]))
-
-    print "Energy difference between the models: " + str(testEnergy/len(KE1))
-
-    '''
-     Run for while both lls models have additional data points
-
-    while(plot1.hasNext() and plot2.hasNext()):
-      plot1.animIterable()
-      plot2.animIterable()
-      #if 'plot' in args:
-      #    lls1.plot(o=o)
-      #    lls1.plot(o=o)
-    '''
-    #v1,delta1,omega1 = z1
-    #op1.pars(lls=lls1,
-          #x=X,y=Y,theta=theta,
-          #v=v,delta=delta,omega=omega,
-          #x0=x0,q0=q0,
-          #T=np.diff([tt[0] for tt in t[::2]]).mean())
+  while(plot1.hasNext() and plot2.hasNext()):
+    plot1.animIterable()
+    plot2.animIterable()
+    #if 'plot' in args:
+    #    lls1.plot(o=o)
+    #    lls1.plot(o=o)
+  '''
+  #v1,delta1,omega1 = z1
+  #op1.pars(lls=lls1,
+        #x=X,y=Y,theta=theta,
+        #v=v,delta=delta,omega=omega,
+        #x0=x0,q0=q0,
+        #T=np.diff([tt[0] for tt in t[::2]]).mean())

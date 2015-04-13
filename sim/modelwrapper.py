@@ -15,14 +15,11 @@
 import pandas as pd
 import numpy as np
 import scipy.optimize as spo
-
 import lls as lls
 import puck as puck
 from opt import opt
 #import modelplot as mp
-
 from util import num
-
 '''
 t # time samples
 a # cart accel
@@ -31,7 +28,6 @@ model.accel = ( lambda s,_,_ : np.array([0.,num.interp1(s,t,a),0.]) )
 # later in LLS.dyn the following will be called:
 LLSmdl.accel(.5,_,_)
 '''
-
 import os
 import time
 import sys
@@ -343,7 +339,7 @@ class ModelWrapper(object):
         if isinstance(configName, str):
             self.trials.loc[ID] = [modelName, configName, np.nan, np.nan, parmHash]
         else:
-            self.trials.loc[ID] = [modelName, 'N/A', np.nan, np.nan, parmHash]
+            self.trials.loc[ID] = [modelName, np.nan, np.nan, np.nan, parmHash]
         #'ModelName','ConfFile','Cost','HashParm'
 
     def jsonConfiguration(self,configName):
@@ -354,7 +350,15 @@ class ModelWrapper(object):
         else:
             raise Exception("ModelWrapper: Not valid configuration file")
 
-    def initModel(self, modelName, config, dataID):
+    def setAccel(self, model, accel, timeData, accelData):
+        if accel == None or accel == 'noAccel':
+            model.accel = ( lambda s,i,j : np.array([0.,0.,0.]))
+        elif accel == 'dataAccel':
+            model.accel = ( lambda s,i,j : np.array([0.,-num.interp1(np.array([s]),timeData,accelData),0.]))
+        else:
+            raise Exception("ModelWrapper: Not valid acceleration type")
+
+    def initModel(self, modelName, config, dataID, accel):
 
         #configPath = os.path.join(os.getcwd(),config)
 
@@ -372,7 +376,8 @@ class ModelWrapper(object):
         beginIndex, endIndex = self.findDataIndex(dataID, None, 'all')
         accelData = np.array(self.data[dataID].ix[beginIndex:endIndex-2, "CartAcceleration"])
         timeData = np.array(np.linspace(beginIndex*dt,(endIndex-2)*dt,endIndex-1-beginIndex))
-        model.accel = ( lambda s,i,j : np.array([0.,-num.interp1(np.array([s]),timeData,accelData),0.]))
+        self.setAccel(model,accel,timeData,accelData)
+
         #mw.data[dataID].ix[beginIndex:endIndex-2, "CartAcceleration"]
         #model.accel = ( lambda s,i,j : np.array([0.,num.interp1(s,t,self.data[dataID]),0.]) )
         return model
@@ -382,6 +387,7 @@ class ModelWrapper(object):
         #TO DO: Call simulate
         t,x,q = model(0, model.p['t'], model.x0, model.q0, model.p['N'], dbg)
         o = model.obs().resample(model.p['dt'])
+        #o = model.obs()
         ID = self.newTrialID()
         self.storeObs(ID, o, listParm)
         self.storeParms(ID,listParm)
@@ -389,7 +395,7 @@ class ModelWrapper(object):
         self.storeMod(ID, model.name, confName)
         return ID
 
-    def runTrial(self, modelName=None, config=None, listParm=None, dataID =None):
+    def runTrial(self, modelName=None, config=None, listParm=None, dataID=None, accel=None):
         '''
         .runTrial takes the model call, configuration file, and list of
         parameters to be tracked. It then runs the model and stores the
@@ -409,7 +415,7 @@ class ModelWrapper(object):
         or listParm == None:
             raise Exception("ModelWrapper: No model name, config file, or list of variables to track was given")
 
-        model = self.initModel(modelName, config, dataID)
+        model = self.initModel(modelName, config, dataID,accel)
         ID = self.runModel(model, listParm, config)
         self.updateDataID(ID,dataID)
         return ID
@@ -510,6 +516,121 @@ class ModelWrapper(object):
         endIndex = self.observations[obsID]['x'].last_valid_index()
         return beginIndex, endIndex
 
+    @staticmethod
+    def rotMat3(theta):
+        return np.matrix([[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]])
+
+    @staticmethod
+    def rotMat2(theta):
+        return np.matrix([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]])
+
+    def findObsState(self, obsID, index, variables):
+        state = {}
+        for var in variables:
+            state[var] = self.observations[obsID].ix[index, var]
+        return state
+
+    def compareTrajectory(self, index0, index1, obsID0, obsID1, tolerance):
+        """
+        .compareTrajectory - Used to compare two identical trajectories except for the initial x,y,theta
+
+        INPUTS:
+            Index0 - 1 x 2 int
+            Index1 - 1 x 2 int
+            obsID0 - 1 x 1 int
+            obsID1 - 1 x 1 int
+
+        OUTPUTS:
+            boolean - TRUE indicates the trajectory is the same
+        """
+        if (index1[1] - index1[0]) != (index0[1] - index0[0]):
+            raise Exception("Model Wrapper: Trajectories have different lengths")
+
+        if index0[0] not in list(self.observations[obsID0].index) or index0[1] not in list(self.observations[obsID0].index):
+            raise Exception("Model Wrapper: obsID0 does not have all indexes")
+
+        if index1[0] not in list(self.observations[obsID1].index) or index1[1] not in list(self.observations[obsID1].index):
+            raise Exception("Model Wrapper: obsID1 does not have all indexes")
+
+        state0 = self.findObsState(obsID0, index0[0],['x','y','theta'])
+        state1 = self.findObsState(obsID1, index1[0],['x','y','theta'])
+        point0Start = np.matrix([[state0['x']],[state0['y']],[0.0]])
+        point1Start = np.matrix([[state1['x']],[state1['y']],[0.0]])
+
+        for (i0,i1) in zip(range(index0[0],index0[1]),range(index1[0],index1[1])):
+            row0 = self.observations[obsID0].ix[i0]
+            row1 = self.observations[obsID1].ix[i1]
+            point0Current = np.matrix([[row0['x']],[row0['y']],[0.0]])
+            point1Current = np.matrix([[row1['x']],[row1['y']],[0.0]])
+
+            errorMat = ModelWrapper.rotMat3(state0['theta']) * (point0Current - point0Start) \
+             - ModelWrapper.rotMat3(state1['theta']) * (point1Current - point1Start)
+
+            if any(np.abs(x) > tolerance for x in errorMat):
+                print 'index0: ' + str(i0)
+                print 'index1: ' + str(i1)
+                return False
+
+        return True
+
+    def findPeriod(self, obsID):
+        observation = self.observations[obsID]
+        maxIndex = max(observation.index)
+        finalFootState = int(observation['q'].ix[maxIndex])
+        if finalFootState == 0:
+            footState = 1
+            indexes = observation.query('q == 1').index
+        else:
+            footState = 0
+            indexes = observation.query('q == 0').index
+
+        index = len(indexes) - 1
+        currentIndex = len(indexes) - 1
+        i = 0
+
+        while indexes[currentIndex] + i == indexes[index]:
+            currentIndex -= 1
+            i += 1
+        return indexes[index] - indexes[currentIndex] + 1
+
+    def findSpeed(self, obsID):
+        period = self.findPeriod(obsID)
+        observation = self.observations[obsID]
+        maxIndex = max(observation.index)
+        distanceSum = 0.0
+        for i in range(maxIndex - period+1,maxIndex):
+            xDiff =  observation.ix[i+1, 'x']- observation.ix[i, 'x']
+            yDiff =  observation.ix[i+1, 'y']- observation.ix[i, 'y']
+            distanceSum += np.sqrt(xDiff**2 + yDiff**2)
+        return distanceSum
+
+    def findPhase(self, sampleIndex, obsID):
+        observation = self.observations[obsID]
+        period = self.findPeriod(obsID)
+        footstate = int(observation['q'].ix[sampleIndex])
+        print period
+        currentIndex = sampleIndex
+
+        if footstate == 0:
+            while observation.ix[currentIndex, 'q'] == observation.ix[sampleIndex, 'q']:
+                currentIndex -= 1
+            return (sampleIndex - (currentIndex + 1.0))/period
+        else:
+            while observation.ix[currentIndex, 'q'] == observation.ix[sampleIndex, 'q']:
+                currentIndex -= 1
+            while observation.ix[currentIndex, 'q'] == 0:
+                currentIndex -= 1
+            return (sampleIndex - (currentIndex + 1.0))/period
+
+    def findFootLocation(self, obsID, sampleIndex, x, y, theta):
+        observation = self.observations[obsID]
+        obsState = self.findObsState(obsID, sampleIndex, ['x','y','theta','fx','fy'])
+        fOrigin = np.matrix([[obsState['fx'] - obsState['x']] ,[obsState['fy'] - obsState['y']]])
+        offset = np.matrix([[x],[y]])
+        f = ModelWrapper.rotMat2(theta - obsState['theta']) * fOrigin + offset
+        return (float(f[0][0]),float(f[1][0]))
+
+
 class ModelConfiguration(object):
 
     def __init__(self, modelwrapper,template = None):
@@ -565,7 +686,7 @@ class ModelConfiguration(object):
 
     @staticmethod
     def packConfiguration(configuration):
-        zVarList = ['v','delta','omega']
+        zVarList = ['v','delta','dtheta']
         qVarList = ['q','m','I','eta0','k','d','beta','fx','fy']
         z0 = []
         q0 = []
@@ -607,7 +728,7 @@ class ModelConfiguration(object):
                 self.template = json.load(file)
                 return self.template
         else:
-            raise Exception("ModelConfiguration: Not valid configuration file")
+            raise Exception("ModelConfiguration: Not valid template file")
 
     def generateConfiguration(self, template):
         ID = self.newConfID()
@@ -628,19 +749,20 @@ class ModelConfiguration(object):
             confNames.append(fileName)
         return confNames
 
-    def setConfValuesData(self, beginIndex, dataID, confID, variables):
+    def setConfValuesData(self, index, dataID, conf, variables):
         for var in variables:
-            self.configurations[confID][var] = self.modelwrapper.data[dataID].ix[beginIndex, ModelOptimize.label[var]]
+            conf[var] = self.modelwrapper.data[dataID].ix[index, ModelOptimize.label[var]]
+        return conf
 
-    def setConfValuesObs(self, beginIndex, obsID, confID, variables):
-
+    def setConfValuesObs(self, index, obsID, conf, variables):
         #print self.modelwrapper.observations[obsID]
         for var in variables:
-            self.configurations[confID][var] = self.modelwrapper.observations[obsID].ix[beginIndex, var]
+            conf[var] = self.modelwrapper.observations[obsID].ix[index, var]
+        return self.packConfiguration(conf)
 
-    def setRunTime(self, beginIndex, endIndex, configID):
-        configuration = self.configurations[configID]
-        configuration['t'] = (endIndex-beginIndex+1) * configuration['dt']
+    def setRunTime(self, beginIndex, endIndex, conf):
+        conf['t'] = (endIndex-beginIndex+1) * conf['dt']
+        return conf
 
 class ModelOptimize(object):
 
@@ -960,8 +1082,7 @@ class ModelOptimize(object):
     def noChange(fun, x0, args, **options):
         return spo.OptimizeResult(x=x0, fun=fun(x0), success=True, nfev=1)
 
-
-    def step(self, currentCost, bestCost):
+    def gradientStep(self, currentCost, bestCost):
         return ((bestCost - currentCost) / (self.varOpt.s * bestCost)) * self.varOpt.stepSize
 
     def finiteDifferences(self, fun, x0, args, **options):
@@ -978,7 +1099,7 @@ class ModelOptimize(object):
                 x2[i] =  x1[i] + self.varOpt.s
                 f2 = self.cost(x2)
                 #x1[i] = ((fj - f2) / (self.varOpt.s * fj)) * self.varOpt.stepSize + x1[i]
-                x1[i] = self.step(f2, fj) + x1[i]
+                x1[i] = self.gradientStep(f2, fj) + x1[i]
             f1 = self.cost(x1)
             if f1 < fj:
                 print 'Minimized'
