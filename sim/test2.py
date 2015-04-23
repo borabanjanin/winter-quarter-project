@@ -6,27 +6,29 @@ import time
 import numpy as np
 
 
-#saveDir = 'BestTrials-1k'
+saveDir = 'StableOrbit'
 
-varList = ['x','y','theta','fx','fy','dx','dy','dtheta','q']
+varList = ['x','y','theta','fx','fy','dtheta','omega','q','v','delta','t']
 
-mw = model.ModelWrapper()
+mw = model.ModelWrapper(saveDir)
 mo = model.ModelOptimize(mw)
 mc = model.ModelConfiguration(mw)
 
 mw.csvLoadData([0])
 
-oddPosition =  mw.data[0]["TarsusBody1_x"] + mw.data[0]["TarsusBody3_x"] + mw.data[0]["TarsusBody5_x"]
-evenPosition =  mw.data[0]["TarsusBody2_x"] + mw.data[0]["TarsusBody4_x"] + mw.data[0]["TarsusBody6_x"]
-oddV =  mw.data[0]["TarsusBody1_vx"] + mw.data[0]["TarsusBody3_vx"] + mw.data[0]["TarsusBody5_vx"]
-evenV =  mw.data[0]["TarsusBody2_vx"] + mw.data[0]["TarsusBody4_vx"] + mw.data[0]["TarsusBody6_vx"]
+templateControl = mc.jsonLoadTemplate("templateControl")
+templateMass = mc.jsonLoadTemplate("templateMass")
+templateInertia = mc.jsonLoadTemplate("templateInertia")
 
-pos = oddPosition - evenPosition
-vel = oddV - evenV
+templateControl['tf'] = 5.0
+templateMass['tf'] = 5.0
+templateInertia['tf'] = 5.0
+templateControl['N'] = 250
+templateMass['N'] = 250
+templateInertia['N'] = 250
 
-xv = pos + 1.j * vel
+mw.runTrial('lls.LLS', templateControl, varList, 0)
+mw.runTrial('lls.LLS', templateMass, varList, 0)
+mw.runTrial('lls.LLS', templateInertia, varList, 0)
 
-plt.clf()
-plt.figure(1)
-#plt.plot(pos[:283], vel[:283], lw=4)
-plt.plot(mw.data[0]['Roach_xv_phase'])
+mw.saveTables()

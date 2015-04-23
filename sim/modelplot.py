@@ -150,7 +150,7 @@ class ModelPlot(object):
             raise Exception("ModelPlot: Improper offsetMode passed")
 
     def combineObs(self, obsIDs, offsetMode):
-        self.modelwrapper.csvLoadObs(obsIDs)
+        #self.modelwrapper.csvLoadObs(obsIDs)
         observations = self.modelwrapper.observations
         columnList = list(observations[obsIDs[0]].columns.values)
         columnList.insert(0,'SampleID')
@@ -165,11 +165,11 @@ class ModelPlot(object):
                 currentRow.insert(0,sampleID)
                 currentObsTable.loc[j] = currentRow
             obsTable = pd.concat([obsTable, currentObsTable])
-        self.modelwrapper.csvReleaseObs(obsIDs)
+        #self.modelwrapper.csvReleaseObs(obsIDs)
         return obsTable
 
     def combineData(self, dataIDs, offset):
-        self.modelwrapper.csvLoadData(dataIDs)
+        #self.modelwrapper.csvLoadData(dataIDs)
         data = self.modelwrapper.data
         columnList = list(data[dataIDs[0]].columns.values)
         columnList.insert(0,'SampleID')
@@ -186,7 +186,7 @@ class ModelPlot(object):
                 currentRow.insert(1,dataID)
                 currentDataTable.loc[j] = currentRow
             dataTable = pd.concat([dataTable, currentDataTable])
-        self.modelwrapper.csvReleaseData(dataIDs)
+        #self.modelwrapper.csvReleaseData(dataIDs)
         return dataTable
 
         #pd.DataFrame(columns=variable,index=range(dataSize))

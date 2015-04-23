@@ -241,6 +241,8 @@ class ModelWrapper(object):
         '''
         results = pd.DataFrame(columns=dictionary.keys(),index=range(dataSize))
 
+        #print dictionary['acc'][0][1::3]
+
         for parm in dictionary.keys():
             results[parm] = np.ravel(dictionary[parm])
 
@@ -367,6 +369,7 @@ class ModelWrapper(object):
         model = None
 
         if isinstance(config, dict):
+            config = copy.copy(config)
             model = eval(modelName)(ModelConfiguration.packConfiguration(config))
         else:
             config = os.path.join(self.saveDir,'configurations',config)
@@ -385,7 +388,7 @@ class ModelWrapper(object):
     def runModel(self, model, listParm, confName):
         dbg  = model.p.get('dbg',False)
         #TO DO: Call simulate
-        t,x,q = model(0, model.p['t'], model.x0, model.q0, model.p['N'], dbg)
+        t,x,q = model(model.p['to'], model.p['tf'], model.x0, model.q0, model.p['N'], dbg)
         o = model.obs().resample(model.p['dt'])
         #o = model.obs()
         ID = self.newTrialID()
@@ -552,19 +555,21 @@ class ModelWrapper(object):
         if index1[0] not in list(self.observations[obsID1].index) or index1[1] not in list(self.observations[obsID1].index):
             raise Exception("Model Wrapper: obsID1 does not have all indexes")
 
-        state0 = self.findObsState(obsID0, index0[0],['x','y','theta'])
-        state1 = self.findObsState(obsID1, index1[0],['x','y','theta'])
-        point0Start = np.matrix([[state0['x']],[state0['y']],[0.0]])
-        point1Start = np.matrix([[state1['x']],[state1['y']],[0.0]])
+        #state0 = self.findObsState(obsID0, index0[0],['v','delta','dtheta'])
+        #state1 = self.findObsState(obsID1, index1[0],['v','delta','dtheta'])
+        #point0Start = np.matrix([[state0['v']],[state0['delta']],['dtheta']])
+        #point1Start = np.matrix([[state1['v']],[state1['delta']],['dtheta']])
 
         for (i0,i1) in zip(range(index0[0],index0[1]),range(index1[0],index1[1])):
             row0 = self.observations[obsID0].ix[i0]
             row1 = self.observations[obsID1].ix[i1]
-            point0Current = np.matrix([[row0['x']],[row0['y']],[0.0]])
-            point1Current = np.matrix([[row1['x']],[row1['y']],[0.0]])
+            point0Current = np.matrix([[row0['v']],[row0['delta']],[row0['omega']]])
+            point1Current = np.matrix([[row1['v']],[row1['delta']],[row1['omega']]])
 
-            errorMat = ModelWrapper.rotMat3(state0['theta']) * (point0Current - point0Start) \
-             - ModelWrapper.rotMat3(state1['theta']) * (point1Current - point1Start)
+            #errorMat = ModelWrapper.rotMat3(state0['theta']) * (point0Current - point0Start)  - ModelWrapper.rotMat3(state1['theta']) * (point1Current - point1Start)
+
+            errorMat = point0Current - point1Current
+
 
             if any(np.abs(x) > tolerance for x in errorMat):
                 print 'index0: ' + str(i0)
@@ -608,7 +613,6 @@ class ModelWrapper(object):
         observation = self.observations[obsID]
         period = self.findPeriod(obsID)
         footstate = int(observation['q'].ix[sampleIndex])
-        print period
         currentIndex = sampleIndex
 
         if footstate == 0:
@@ -623,12 +627,39 @@ class ModelWrapper(object):
             return (sampleIndex - (currentIndex + 1.0))/period
 
     def findFootLocation(self, obsID, sampleIndex, x, y, theta):
+        #print 'new x, y, theta: ' + str(x) + ' '+ str(y) + ' '+ str(theta)
         observation = self.observations[obsID]
         obsState = self.findObsState(obsID, sampleIndex, ['x','y','theta','fx','fy'])
+        #print 'obs x, y, theta: ' + str(obsState['x']) + ' '+ str(obsState['y']) + ' '+ str(obsState['theta'])
+        #print 'obs fx, fy: ' + str(obsState['fx']) + ' ' + str(obsState['fy'])
         fOrigin = np.matrix([[obsState['fx'] - obsState['x']] ,[obsState['fy'] - obsState['y']]])
         offset = np.matrix([[x],[y]])
         f = ModelWrapper.rotMat2(theta - obsState['theta']) * fOrigin + offset
+        #print 'new fx, fy: ' + str(float(f[0][0])) + ' ' + str(float(f[1][0]))
+        #print ' '
         return (float(f[0][0]),float(f[1][0]))
+
+    def phaseDiffData(self, data, index0, index1):
+        return data.ix[index1, 'Roach_xv_phase'] - data.ix[index0, 'Roach_xv_phase']
+
+    def findPhaseDiffData(self, data, offset, numPeriods):
+        index = offset - 1
+        while(self.phaseDiffData(data, index, offset) < numPeriods * 2.0*np.pi):
+            index -= 1
+        return offset - index
+
+    def findPeriodData(self, data, offset, dt, numPeriods):
+        periodSamples = self.findPhaseDiffData(data, offset, numPeriods)
+        return (periodSamples * dt)/numPeriods
+
+    def findAverageSpeedData(self, data, offset, numPeriods):
+        totalSpeed = 0.0
+        periodSamples = self.findPhaseDiffData(data, offset, numPeriods)
+        r = range(offset-periodSamples, offset+1)
+        for i in r:
+            if np.isnan(data.ix[i, 'Roach_v']) == False:
+                totalSpeed += data.ix[i, 'Roach_v']
+        return totalSpeed/len(r)
 
 
 class ModelConfiguration(object):
@@ -761,7 +792,8 @@ class ModelConfiguration(object):
         return self.packConfiguration(conf)
 
     def setRunTime(self, beginIndex, endIndex, conf):
-        conf['t'] = (endIndex-beginIndex+1) * conf['dt']
+        conf['to'] = beginIndex * conf['dt']
+        conf['tf'] = endIndex * conf['dt']
         return conf
 
 class ModelOptimize(object):

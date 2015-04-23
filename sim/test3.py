@@ -5,17 +5,18 @@ import os
 import time
 import numpy as np
 import copy
+import random
 
 
 
-#saveDir = 'BestTrials-1k'
+saveDir = 'StableOrbit'
 
 #index0 and index1 are tuples
 
-varList = ['x','y','theta','fx','fy','hx','hy','E','dtheta','omega','PE','KE','q','v','delta']
+varList = ['x','y','theta','fx','fy','dtheta','omega','q','v','delta','t']
 #varList = ['t','x','y','theta','dx','dy','fx','fy','dtheta','delta','v','q']
 
-mw = model.ModelWrapper()
+mw = model.ModelWrapper(saveDir)
 
 mo = model.ModelOptimize(mw)
 mc = model.ModelConfiguration(mw)
@@ -25,47 +26,72 @@ rot0 = np.pi/4
 rot1 = np.pi/3
 
 mw.csvLoadData([dataID])
+mw.csvLoadObs([0])
 
-template = mc.jsonLoadTemplate("template")
+template = mc.jsonLoadTemplate("templateControl")
+
+#template['v'] = 35.5
+#template['beta'] = 1.0
+#template['eta0'] = 1.0
+
 template['dt'] = .002
+template['to'] = 1.0
+template['tf'] = 5.0
+template['N'] = 250
 template1 = copy.copy(template)
 
 template['x'] = 2.0
 template['y'] = -3.0
-template['theta'] = rot0
-template['t'] = 2
 
+'''
 obsID0 = mw.runTrial('lls.LLS', template, varList, dataID)
 index0 = mw.findObsIndex(obsID0)
 state0 = mw.findObsState(obsID0, index0, varList)
+'''
 
+dataIDs = mo.treatments.query("Treatment == 'control'").index
 
-sampleIndex = 40
-template1 = mc.setConfValuesObs(sampleIndex, obsID0, template, varList)
+mw.csvLoadData(dataIDs)
 
-template1['x'] = 4.0
-template1['y'] = 5.0
-template1['theta'] = rot1
-template1['t'] = .5
+obsID0 = 0
 
-f = mw.findFootLocation(obsID0, sampleIndex, template1['x'], template1['y'], rot1)
+random.seed(2)
+for dataID in dataIDs:
+    #for i in [20,520,1020,1520,2020,2200]:
+    sampleIndex = 500
+    template1 = mc.setConfValuesObs(sampleIndex, obsID0, template, ['dtheta','omega','q','v','delta'])
 
-template1['fx'] = f[0]
-template1['fy'] = f[1]
+    template1['x'] = random.uniform(-10,10)
+    template1['y'] = random.uniform(-10,10)
+    template1['theta'] = random.uniform(0 , 2 * np.pi)
 
-obsID1 = mw.runTrial('lls.LLS', template, varList, 1)
-index1 = mw.findObsIndex(obsID1)
+    f = mw.findFootLocation(obsID0, sampleIndex, template1['x'], template1['y'], template1['theta'])
+    template1['fx'] = f[0]
+    template1['fy'] = f[1]
+        #plt.show()
 
-print index0
-print index1
+    obsID1 = mw.runTrial('lls.LLStoPuck', template, varList, dataID)
+    index1 = mw.findObsIndex(obsID1)
 
-#setConfValuesObs(index, obsID, conf, variables)
+    #plt.figure(1)
+    #plt.plot(mw.observations[obsID0]['t'],mw.observations[obsID0]['v'])
+    #plt.plot(mw.observations[obsID1]['t'],mw.observations[obsID1]['v'])
 
+    #plt.figure(2)
+    #plt.plot(mw.observations[obsID0]['x'],mw.observations[obsID0]['y'])
+    #plt.plot(mw.observations[obsID1]['x'],mw.observations[obsID1]['y'])
+    #plt.show()
 
-print mw.compareTrajectory((sampleIndex,sampleIndex+10), (0,10), obsID0, obsID1, dataID)
-
-plt.plot(mw.observations[obsID0]['x'],mw.observations[obsID0]['y'])
-plt.plot(mw.observations[obsID1]['x'],mw.observations[obsID1]['y'])
+    #Trajectories don't match for larger sample indexs
+    if len(mw.observations[obsID1].index) != 2000:
+        print 'Shorter Index!!!'
+        print 'DataID: ' + str(dataID)
+        print 'sampleIndex: ' + str(sampleIndex)
+        print
+    elif mw.compareTrajectory((sampleIndex,sampleIndex+100), (0,100), obsID0, obsID1, .1) == False:
+        print 'DataID: ' + str(dataID)
+        print 'sampleIndex: ' + str(sampledIndex)
+        print
 
 #mw.saveTables()
 '''
