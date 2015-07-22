@@ -19,6 +19,8 @@ import matplotlib as mpl
 import modelwrapper as model
 from shrevz import tk
 import os
+import copy
+pd.options.mode.chained_assignment = None
 
 #import plotly.plotly as py
 #from plotly.graph_objs import *# auto sign-in with credentials or use py.sign_in()
@@ -149,6 +151,7 @@ class ModelPlot(object):
         else:
             raise Exception("ModelPlot: Improper offsetMode passed")
 
+    '''    DEPRECIATED TO BE DELETED
     def combineObs(self, obsIDs, offsetMode):
         #self.modelwrapper.csvLoadObs(obsIDs)
         observations = self.modelwrapper.observations
@@ -167,8 +170,24 @@ class ModelPlot(object):
             obsTable = pd.concat([obsTable, currentObsTable])
         #self.modelwrapper.csvReleaseObs(obsIDs)
         return obsTable
+    '''
 
-    def combineData(self, dataIDs, offset):
+    def combineObs(self, obsIDs, offsetMode):
+        observations = self.modelwrapper.observations
+        columnList = list(observations[obsIDs[0]].columns.values)
+        columnList.insert(0,'SampleID')
+        obsTable = pd.DataFrame(columns=columnList)
+        for i in range(len(obsIDs)):
+            obsID = obsIDs[i]
+            observation = observations[obsID]
+            newObservation = copy.deepcopy(observation)
+            offset = self.findObsOffset(observation, offsetMode)
+            newObservation['SampleID'] = map(lambda x : x - offset, observation.index)
+            obsTable = pd.concat([obsTable, newObservation])
+        return obsTable
+
+    '''    DEPRECIATED TO BE DELETED
+    def combineData2(self, dataIDs, offset):
         #self.modelwrapper.csvLoadData(dataIDs)
         data = self.modelwrapper.data
         columnList = list(data[dataIDs[0]].columns.values)
@@ -188,17 +207,23 @@ class ModelPlot(object):
             dataTable = pd.concat([dataTable, currentDataTable])
         #self.modelwrapper.csvReleaseData(dataIDs)
         return dataTable
+    '''
 
-        #pd.DataFrame(columns=variable,index=range(dataSize))
-
-    #def plotQuantile(self,variable,)
-
-    #def closeFigures(self):
-        #for fig in self.figs:
-            #plt.close(fig)
-
-    #def __del__(self):
-        #self.closeFigures()
+    def combineData(self, dataIDs, offset):
+        data = self.modelwrapper.data
+        columnList = list(data[dataIDs[0]].columns.values)
+        columnList.insert(0,'SampleID')
+        columnList.insert(1,'DataID')
+        dataTable = pd.DataFrame(columns=columnList)
+        for i in range(len(dataIDs)):
+            dataID = dataIDs[i]
+            beginIndex, endIndex = self.modelwrapper.findDataIndex(dataID, offset, 'all')
+            currentData = data[dataID].loc[beginIndex: endIndex]
+            currentData['SampleID'] = map(lambda x : x - offset, currentData.index)
+            currentData['DataID'] = dataID
+            dataTable = pd.concat([dataTable, currentData])
+        #self.modelwrapper.csvReleaseData(dataIDs)
+        return dataTable
 
 class ModelAnimate(object):
     """

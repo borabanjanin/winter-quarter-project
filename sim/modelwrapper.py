@@ -389,7 +389,9 @@ class ModelWrapper(object):
         dbg  = model.p.get('dbg',False)
         #TO DO: Call simulate
         t,x,q = model(model.p['to'], model.p['tf'], model.x0, model.q0, model.p['N'], dbg)
-        o = model.obs().resample(model.p['dt'])
+        o_ = model.obs()
+        o = o_.resample(model.p['dt'])
+        #1/0
         #o = model.obs()
         ID = self.newTrialID()
         self.storeObs(ID, o, listParm)
@@ -509,6 +511,21 @@ class ModelWrapper(object):
         elif optMode == 'all':
             beginIndex = currentData[ModelOptimize.label['x']].first_valid_index()
             endIndex = currentData[ModelOptimize.label['x']].last_valid_index()
+        else:
+            raise Exception("Model Wrapper: Optimization mode not correctly set")
+        return beginIndex, endIndex
+
+    @staticmethod
+    def findDataIndexStatic(data, offset, optMode):
+        if optMode == 'pre':
+            beginIndex = data[ModelOptimize.label['x']].first_valid_index()
+            endIndex = offset
+        elif optMode == 'post':
+            beginIndex = offset
+            endIndex = data[ModelOptimize.label['x']].last_valid_index()
+        elif optMode == 'all':
+            beginIndex = data[ModelOptimize.label['x']].first_valid_index()
+            endIndex = data[ModelOptimize.label['x']].last_valid_index()
         else:
             raise Exception("Model Wrapper: Optimization mode not correctly set")
 

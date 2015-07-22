@@ -133,7 +133,7 @@ class LLS(hds.HDS):
     """
     o = hds.Obs(t=self.t,x=[],y=[],theta=[],dx=[],dy=[],dtheta=[],
                          fx=[],fy=[],PE=[],KE=[],E=[],v=[],delta=[],
-                         q=[],hx=[],hy=[],acc=[])
+                         q=[],hx=[],hy=[],acc=[],accy=[])
 
     for t,x,q in zip(self.t,self.x,self.q):
       # perturbation
@@ -141,6 +141,10 @@ class LLS(hds.HDS):
       acc = []
       for i in range(len(t)):
           acc.append(self.accel(t[i],x,q))
+
+      accy = []
+      for i in range(len(t)):
+          accy.append(self.accel(t[i],x,q)[1])
 
       # unpack params
       q,m,I,eta0,k,d,beta,fx,fy = q
@@ -183,6 +187,9 @@ class LLS(hds.HDS):
       o.delta += [np.c_[delta]]
       o.q += [np.c_[q]]
       o.acc += [np.c_[acc]]
+
+      o.accy += [np.c_[accy]]
+
       #added to resolve naming convention
       o.omega = o.dtheta
     # store result
@@ -908,6 +915,105 @@ class LLStoPuck(LLS):
     ax.set_xlabel('time (msec)');
 
     return axs
+
+class LLSPersist(LLStoPuck):
+  def __init__(self,config):
+    """
+    LLS  LLS hybrid system
+    """
+    op = opt.Opt()
+    #op.pars(fi=config) TO DO: DEPRECIATED FORMAT
+    #self.p = op.p
+    self.p = config
+    super(LLS, self).__init__(self.p['dt'])
+    self.name = 'LLSPersist'
+    self.accel = lambda t,x,q : np.zeros((x.shape[0],3))
+    self.x0 = None
+    self.q0 = None
+    #TO DO: Fix model theta
+    self.p['theta'] = self.p['theta'] + np.pi/2
+    self.initExtrinsic()
+
+  def trans(self, t, x, q, e):
+    """
+    .trans  transition between discrete modes
+    """
+    # copy data
+    t = t.copy(); x = x.copy(); q = q.copy()
+    # unpack params
+    q,m,I,eta0,k,d,beta,fx,fy = q
+    # unpack state
+    x,y,theta,dx,dy,dtheta = x
+    # foot, com, hip
+    f = np.array([fx,fy])
+    c = np.array([x,y])
+    h = c + d*np.array([np.sin(theta),np.cos(theta)])
+    # leg length
+    eta = np.linalg.norm(h - f)
+    # foot in body frame
+    fh = f-h
+    fb = [fh[0]*np.cos(-theta)  + fh[1]*np.sin(-theta),
+          fh[0]*-np.sin(-theta) + fh[1]*np.cos(-theta)]
+    # left foot is right of body axis OR right foot is left of body axis
+    if ( ( fb[0] > 0 ) and ( q == 0 ) ) or ( ( fb[0] < 0 ) and ( q == 1 ) ):
+      # don't switch stance foot
+      pass
+    else:
+      # switch stance foot
+      q = np.mod(q + 1,2)
+    # COM, hip
+    c = np.array([x,y])
+    h = c + d*np.array([np.sin(theta),np.cos(theta)])
+    # leg reset; q even for left stance, odd for right
+    eta = eta0*np.array([np.sin(theta - beta*(-1)**q),
+                         np.cos(theta - beta*(-1)**q)])
+    # new foot position
+    f = h + eta
+    fx = f[0]
+    fy = f[1]
+    # com vel
+    dc = np.array([dx,dy])
+    # hip vel
+    dh = dc + d*dtheta*np.array([np.cos(theta),-np.sin(theta)])
+    # hip vel in body frame
+    dhb=[dh[0]*np.cos(-theta)  + dh[1]*np.sin(-theta),
+         dh[0]*-np.sin(-theta) + dh[1]*np.cos(-theta)]
+    # foot in body frame
+    fh=f-h
+    fb=[fh[0]*np.cos(-theta)  + fh[1]*np.sin(-theta),
+        fh[0]*-np.sin(-theta) + fh[1]*np.cos(-theta)]
+    # leg will instantaneously extend
+    if np.dot(fb, dhb) < 0:
+      # switch stance foot
+      q = np.mod(q + 1,2)
+      # COM, hip
+      c = np.array([x,y])
+      h = c + d*np.array([np.sin(theta),np.cos(theta)])
+      # leg reset; q even for left stance, odd for right
+      eta = eta0*np.array([np.sin(theta - beta*(-1)**q),
+                           np.cos(theta - beta*(-1)**q)])
+      # new foot position
+      f = h + eta
+      fx = f[0]
+      fy = f[1]
+      # com vel
+      dc = np.array([dx,dy])
+      # hip vel
+      dh = dc + d*dtheta*np.array([np.cos(theta),-np.sin(theta)])
+      # hip vel in body frame
+      dhb=[dh[0]*np.cos(-theta)  + dh[1]*np.sin(-theta),
+           dh[0]*-np.sin(-theta) + dh[1]*np.cos(-theta)]
+      # foot in body frame
+      fh=f-h
+      fb=[fh[0]*np.cos(-theta)  + fh[1]*np.sin(-theta),
+          fh[0]*-np.sin(-theta) + fh[1]*np.cos(-theta)]
+      # leg will instantaneously extend
+      if np.dot(fb, dhb) < 0:
+        q=2
+    # pack state, params
+    x = np.array([x,y,theta,dx,dy,dtheta])
+    q = np.array([q,m,I,eta0,k,d,beta,fx,fy])
+    return t, x, q
 
 if __name__ == "__main__":
   op = opt.Opt()

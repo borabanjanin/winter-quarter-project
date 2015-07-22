@@ -19,7 +19,7 @@ mw.csvLoadObs([0])
 LINE_LENGTH = 8
 
 def calcAccelSam(observation, template, i):
-    theta = observation.ix[i, 'theta'] + np.pi/2
+    theta = observation.ix[i, 'theta'] - np.pi/2
     x = observation.ix[i, 'x']
     y = observation.ix[i, 'y']
     fx = observation.ix[i, 'fx']
@@ -66,42 +66,43 @@ def calcBora(observation, template):
     observation['yForce'] = 0
     observation['torque'] = 0
     #nothing
-    observation['xForceOrig'] = 0
-    observation['yForceOrig'] = 0
-    observation['torqueOrig'] = 0
-    indexes = mw.findDataIndex(dataID, 283, 'all')
+    observation['xForceAlt'] = 0
+    observation['yForceAlt'] = 0
+    #torque and rotate at the same time
+    observation['xForceAlt'] = 0
+    observation['yForceAlt'] = 0
 
-    for i in range(indexes):
+    for i in observation.index:
         #accelVector = mw.rotMat3(observation.ix[i ,'theta']) * np.matrix([[xDiff[i]], [yDiff[i]], [0]])
         accelVector = np.matrix([[xDiff[i]], [yDiff[i]], [0]])
         observation.ix[i, 'xAccel'] = accelVector.item(0,0)
         observation.ix[i, 'yAccel'] = accelVector.item(1,0)
         observation.ix[i, 'xForce'] = accelVector.item(0,0) * template['m']
         observation.ix[i, 'yForce'] = accelVector.item(1,0) * template['m']
-        observation.ix[i, 'torqueOrig'] = rotDiff[i] * template['I']
+        observation.ix[i, 'torque'] = rotDiff[i] * template['I']
 
         #fb = np.matrix([[observation.ix[i, 'xForce'],observation.ix[i, 'yForce'],0]])
 
-        pbc = np.matrix([[template['d'] * np.sin(observation.ix[i, 'theta'] - np.pi/2), template['d'] * np.cos(observation.ix[i, 'theta'] - np.pi/2), 0]])
+        pbc = np.matrix([[template['d'] * np.cos(observation.ix[i, 'theta']), template['d'] * np.sin(observation.ix[i, 'theta']), 0]])
         phat = np.matrix([[0, 0, pbc.item(0,1)], [0, 0, pbc.item(0,0)], [pbc.item(0,1), pbc.item(0,0), 0]])
 
         zeroMatrix = np.matrix([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
         ft = np.matrix([[observation.ix[i, 'xForce']], [observation.ix[i, 'yForce']], [0], [0], [0], [observation.ix[i, 'torque']]])
 
-        #transformation = np.vstack([np.hstack([mw.rotMat3(observation.ix[i, 'theta']).transpose(), \
-        #zeroMatrix]),np.hstack([-mw.rotMat3(observation.ix[i, 'theta']).transpose()*phat, mw.rotMat3(observation.ix[i, 'theta']).transpose()])])
+        observation.ix[i, 'xForceOrig'] = -xDiff[i]
+        observation.ix[i, 'yForceOrig'] = -yDiff[i]
 
-        transformation = np.vstack([np.hstack([mw.rotMat3(0).transpose(), \
-        zeroMatrix]),np.hstack([-mw.rotMat3(0).transpose()*phat, mw.rotMat3(0).transpose()])])
+        transformation = np.vstack([np.hstack([mw.rotMat3(observation.ix[i, 'theta']).transpose(), \
+        zeroMatrix]),np.hstack([-mw.rotMat3(observation.ix[i, 'theta']).transpose()*phat, mw.rotMat3(observation.ix[i, 'theta']).transpose()])])
+
+        #transformation = np.vstack([np.hstack([mw.rotMat3(0).transpose(), \
+        #zeroMatrix]),np.hstack([-mw.rotMat3(0).transpose()*phat, mw.rotMat3(0).transpose()])])
 
         fc = transformation * ft
 
-        observation.ix[i, 'xForceOrig'] = xDiff[i]
-        observation.ix[i, 'yForceOrig'] = yDiff[i]
-
-        observation.ix[i, 'xForce'] = fc.item(0,0)
-        observation.ix[i, 'yForce'] = fc.item(1,0)
-        observation.ix[i, 'torque'] = fc.item(5,0)
+        observation.ix[i, 'xForce'] = -fc.item(0,0)
+        observation.ix[i, 'yForce'] = -fc.item(1,0)
+        observation.ix[i, 'torque'] = -fc.item(5,0)
 
     return observation
 
@@ -114,20 +115,22 @@ def calcSam(observation, template):
     observation['yForce'] = 0
     observation['torque'] = 0
     #nothing
-    observation['xForceOrig'] = 0
-    observation['yForceOrig'] = 0
-    observation['torqueOrig'] = 0
+    observation['xForceAlt'] = 0
+    observation['yForceAlt'] = 0
+    #torque and rotate at the same time
+    observation['xForceAlt'] = 0
+    observation['yForceAlt'] = 0
 
     for i in observation.index:
         (accelX, accelY, accelAng) = calcAccelSam(observation, template, i)
-        observation.ix[i, 'xForceOrig'] = accelX * template['m']
-        observation.ix[i, 'yForceOrig'] = accelY * template['m']
-        observation.ix[i, 'torqueOrig'] = accelAng * template['I']
+        observation.ix[i, 'xForceOrig'] = -accelX * template['m']
+        observation.ix[i, 'yForceOrig'] = -accelY * template['m']
+        observation.ix[i, 'yForceOrig'] = accelAng * template['I']
 
         zeroMatrix = np.matrix([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
         ft = np.matrix([[observation.ix[i, 'xForceOrig']], [observation.ix[i, 'yForceOrig']], [0], [0], [0], [accelAng * template['I']]])
 
-        pbc = np.matrix([[template['d'] * np.sin(observation.ix[i, 'theta'] - np.pi/2), template['d'] * np.cos(observation.ix[i, 'theta'] - np.pi/2), 0]])
+        pbc = np.matrix([[template['d'] * np.cos(observation.ix[i, 'theta']), template['d'] * np.sin(observation.ix[i, 'theta']), 0]])
         #pbc = np.matrix([[template['d'], 0, 0]]).transpose()
 
         phat = np.matrix([[0, 0, pbc.item(0,1)], [0, 0, pbc.item(0,0)], [pbc.item(0,1), pbc.item(0,0), 0]])
@@ -144,34 +147,27 @@ def calcSam(observation, template):
         observation.ix[i, 'yForce'] = fc.item(1,0)
         observation.ix[i, 'torque'] = fc.item(5,0)
 
-        observation.ix[i, 'xForceOrig'] = -accelX * template['m']
-        observation.ix[i, 'yForceOrig'] = -accelY * template['m']
-
     return observation
 
 def plotLines(observation, figNum, xFstring, yFstring):
-    plt.figure(figNum, figsize=(10,10))
-    for i in range(1000,1100):
+    plt.figure(figNum, figsize=(10,10)); plt.clf()
+    for i in range(100):
         x = observation.ix[i, 'x']
         y = observation.ix[i, 'y']
-        xF = -observation.ix[i, xFstring]
-        yF = -observation.ix[i, yFstring]
-        xH = -template['d'] * np.sin(observation.ix[i, 'theta'] - np.pi/2)
-        yH = -template['d'] * np.cos(observation.ix[i, 'theta'] - np.pi/2)
+        xF = observation.ix[i, xFstring]
+        yF = observation.ix[i, yFstring]
         alpha = np.sqrt(LINE_LENGTH/(xF**2 + yF**2))
-        #alpha = 10
-        plt.plot([x + xH, x + xF * alpha + xH], \
-        [y + yH, y + yF * alpha + yH], color='b', linestyle='-', linewidth=1)
-        plt.plot(x - template['d'] * np.sin(observation.ix[i, 'theta'] - np.pi/2), y - template['d'] * np.cos(observation.ix[i, 'theta'] - np.pi/2), marker='o', c='g')
-        plt.plot(observation.ix[i, 'hx'], observation.ix[i, 'hy'], marker='x', c='r')
+        plt.plot([x - template['d'] * np.cos(observation.ix[i, 'theta']), x + xF * alpha - template['d'] * np.cos(observation.ix[i, 'theta'])], \
+         [y - template['d'] * np.sin(observation.ix[i, 'theta']), y + yF * alpha - template['d'] * np.sin(observation.ix[i, 'theta'])], color='b', linestyle='-', linewidth=1)
+        plt.plot(x + template['d'] * np.sin(observation.ix[i, 'theta'] - np.pi/2), y + template['d'] * np.cos(observation.ix[i, 'theta'] - np.pi/2), c='g')
         plt.plot(observation.ix[i, 'fx'], observation.ix[i, 'fy'], marker='.', c='k')
         plt.plot(observation.ix[i, 'x'], observation.ix[i, 'y'], marker='.', c='r')
     plt.show()
 
 observation = mw.observations[0]
 template = mc.jsonLoadTemplate('templateControl')
-observation = calcBora(observation, template)
-#observation = calcSam(observation, template)
+#observation = calcBora(observation, template)
+observation = calcSam(observation, template)
 
 plotLines(observation, 1, 'xForce', 'yForce')
 #plotLines(observation, 2, 'xForceOrig', 'yForceOrig')

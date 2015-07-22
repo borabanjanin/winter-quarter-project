@@ -45,6 +45,99 @@ class Obs(object):
         return 'Obs('+str(self.__dict__.keys())+')'
 
     def resample(self,dt):
+      from util.num import interp0
+      # copy all observables
+      o = self.copy()
+      o.t = np.hstack(o.t)
+      t = o.t
+      # resampled time array determined by endpoints t[0][0], t[-1][-1]
+      T = np.arange(t[0],t[-1],dt)
+      o.t = [T]
+
+      #rename to resampled to t
+      tr = o.t[0]
+
+      # loop through observables
+      for k in self.keys():
+        # don't resample time
+        if k == 't':
+            continue
+        # extract observable data
+        x = np.vstack(self.__dict__[k])
+        x = x[:,0]
+        x_ = np.interp(tr,t,x)
+        o.__dict__[k] = [x_]
+        if k == 'x' and True == False:
+            #
+            (slope, offset) = np.polyfit(x=t,y=x,deg=1)
+            dtrend = slope * t + offset
+            plt.figure(1)
+            #plt.plot(t,x-dtrend,'g.-',lw=1)
+            (slope2, offset2) = np.polyfit(x=tr,y=x_,deg=1)
+            dtrend2 = slope2 * tr + offset
+            plt.plot(tr,x_-dtrend2,'b.-',lw=1)
+            plt.show()
+      return o
+
+    def resampleSam(self,dt):
+      from util.num import interp0
+      # copy all observables
+      o = self.copy()
+      o.t = np.hstack(o.t)
+      t = o.t
+      # resampled time array determined by endpoints t[0][0], t[-1][-1]
+      T = np.arange(t[0],t[-1],dt)
+      o.t = [T]
+
+
+      # loop through observables
+      for k in self.keys():
+        # don't resample time
+        if k == 't':
+            continue
+        # extract observable data
+        x = np.vstack(self.__dict__[k])
+        x_ = interp0(o.t[0],t,x)
+        o.__dict__[k] = [x_]
+        #if k == 'x':
+        #  1/0
+      return o
+
+    def resample__(self,dt):
+      # copy all observables
+      o = self.copy()
+      t = o.t
+      # resampled time array determined by endpoints t[0][0], t[-1][-1]
+      T = np.arange(t[0][0],t[-1][-1],dt)
+      o.t = [T]
+      # start times for each trj snippet
+      t0 = np.array([tt[0] for tt in t])
+      tf = np.array([tt[-1] for tt in t])
+      # loop through observables
+      for k in self.keys():
+        # don't resample time
+        if k == 't':
+            continue
+        # extract observable data
+        x = self.__dict__[k]
+        # pre-allocate resampled observable data
+        X = np.nan*np.zeros((T.size,x[0].shape[1]))
+        # loop through time indices and times
+        for i,tt in enumerate(T):
+          # determine which snippets contains this time
+          n = ( (tt >= t0)*(tt <= tf) ).nonzero()[0]
+          assert n.size > 0, "there is at least one snippet containing resampled time"
+          # determine which samples occur before this time in last snippet containing this time
+          j = (t[n[-1]] <= tt).nonzero()[0]
+          assert j.size > 0, "there is at least one sample in the snippet at least as large as resampled time"
+          # select last sample that occurs before this time
+          X[i] = x[n[-1]][j[-1]]
+        # store resampled observable data
+        o.__dict__[k] = [X]
+      return o
+
+
+    def resample_(self,dt):
         o = self.copy()
         t = o.t
         t0 = np.array([tt[0] for tt in t])
