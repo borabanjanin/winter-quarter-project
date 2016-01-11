@@ -31,8 +31,9 @@ for k in K.keys():
   K[k+'m'] = K[k].replace('Mean','01')
   K[k+'M'] = K[k].replace('Mean','99')
 
-D = pickle.load(open( "estimates.p", "rb" ))
-D['control']
+D = pickle.load(open( "Estimates/control.p", "rb" ))
+print D
+#D['control']
 
 sp = 35. # cm / sec
 f = 11. # strides / sec
@@ -44,19 +45,17 @@ ph = np.linspace(0,2*np.pi,N)
 ti = (ph/(2*np.pi)) / f
 
 
-tmt = 'control'
-
 s = 1.
-sdxy = np.sqrt((np.asarray(list(D[tmt][K['dx']])).real+sp)**2
-             + (np.asarray(list(D[tmt][K['dy']])).real)**2).max()
-sddxy = np.sqrt((np.asarray(list(D[tmt][K['ddx']])).real)**2
-              + (np.asarray(list(D[tmt][K['ddy']])).real)**2).max()
-sdt = np.abs(np.asarray(list(D[tmt][K['dt']])).real).max()
-sddt = np.abs(np.asarray(list(D[tmt][K['ddt']])).real).max()
+sdxy = np.sqrt((np.asarray(list(D[K['dx']])).real+sp)**2
+             + (np.asarray(list(D[K['dy']])).real)**2).max()
+sddxy = np.sqrt((np.asarray(list(D[K['ddx']])).real)**2
+              + (np.asarray(list(D[K['ddy']])).real)**2).max()
+sdt = np.abs(np.asarray(list(D[K['dt']])).real).max()
+sddt = np.abs(np.asarray(list(D[K['ddt']])).real).max()
 
 sdxy /= 2.; sddxy /= 2;
 
-Hb = np.asarray([1.4+1.j*.35, .7 +1.j*.35, 0. +1.j*.35, 
+Hb = np.asarray([1.4+1.j*.35, .7 +1.j*.35, 0. +1.j*.35,
                  0. -1.j*.35, .7 -1.j*.35, 1.4-1.j*.35,])
 
 L = []
@@ -74,7 +73,7 @@ def cartoon(D,K,n=None,ax=None,clf=False,lims=True,trans=True,rng=[-N/2,N/2]):
   acc = dict(lw=6.,color='#aa3e39',width=.25,alpha=1.,zorder=10)
   if ax is None or clf:
     plt.figure(1,figsize=(8,4)); plt.clf()
-    ax = plt.axes(); ax.axis('equal'); ax.grid('on'); 
+    ax = plt.axes(); ax.axis('equal'); ax.grid('on');
     ax.autoscale('false')
 
   if n is None or clf:
@@ -89,7 +88,7 @@ def cartoon(D,K,n=None,ax=None,clf=False,lims=True,trans=True,rng=[-N/2,N/2]):
       return ax
 
   for k in K.keys():
-    cmd = k+'=D["'+tmt+'"]["'+K[k]+'"]['+str(n%N)+'].real'
+    cmd = k+'=D["'+K[k]+'"]['+str(n%N)+'].real'
     exec cmd
 
   dx += sp
@@ -101,7 +100,7 @@ def cartoon(D,K,n=None,ax=None,clf=False,lims=True,trans=True,rng=[-N/2,N/2]):
   zxy = x+1.j*y
   zt = np.exp(1.j*t)
   H = Hb*zt + zxy
-  Zb = np.asarray([X1+1.j*Y1, X2+1.j*Y2, X3+1.j*Y3, 
+  Zb = np.asarray([X1+1.j*Y1, X2+1.j*Y2, X3+1.j*Y3,
                    X4+1.j*Y4, X5+1.j*Y5, X6+1.j*Y6])
   Z = Zb*zt + zxy
   Z0 = Z[0::2]; Z1 = Z[1::2]

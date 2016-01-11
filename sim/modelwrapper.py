@@ -420,7 +420,7 @@ class ModelWrapper(object):
         or listParm == None:
             raise Exception("ModelWrapper: No model name, config file, or list of variables to track was given")
 
-        model = self.initModel(modelName, config, dataID,accel)
+        model = self.initModel(modelName, config, dataID, accel)
         ID = self.runModel(model, listParm, config)
         self.updateDataID(ID,dataID)
         return ID
@@ -538,11 +538,11 @@ class ModelWrapper(object):
 
     @staticmethod
     def rotMat3(theta):
-        return np.matrix([[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]])
+        return np.array([[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]])
 
     @staticmethod
     def rotMat2(theta):
-        return np.matrix([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]])
+        return np.array([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]])
 
     def findObsState(self, obsID, index, variables):
         state = {}

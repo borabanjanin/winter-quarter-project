@@ -11,6 +11,7 @@ import os
 import kalman
 import pandas as pd
 from collections import deque
+import copy
 
 def fit(q,a,dv,m_=None,m=None):
     """
@@ -120,14 +121,22 @@ def gradientFunctionsToLambdas(dV, variables):
     return lList
 
 '''
-def evaluateGradientFunction(dv, c, q):
-  accs = np.asarray([cb * dvb(*q) for cb,dvb in zip(c,dv)])
-  return tuple(np.sum(accs,axis=0))
-'''
-
 def evaluateGradientFunction(lList, c, q):
    accs = zip(*[[c[i]* x for x in lList[i](*q)] for i, ci in enumerate(c)])
    return tuple([sum(acc) for acc in accs])
+'''
+def evaluateGradientFunction2(lList, C, q):
+    print np.shape(q)
+    return np.sum([C[i] * lList[i](*tuple(q)) for i in range(np.shape(C)[0])],0)
+
+def evaluateGradientFunction(lList, C, qList):
+    accs = np.zeros(np.shape(qList))
+    for i in range(np.shape(qList)[0]):
+        q = qList[i]
+        accs[i,:] = np.sum([C[j] * lList[j](q[0], q[1], q[2]) for j in range(np.shape(C)[0])],0)
+        #print np.sum([C[j] * lList[j](q[0], q[1], q[2]) for j in range(np.shape(C)[0])],0)
+    return accs
+    #return np.sum([C[i] * lList[i](*q) for i in range(np.shape(C)[0])],0)
 
 def loadPWHamil(label):
     return pickle.load(open(os.path.join(os.getcwd(), 'PWHamil',label+'.p'), 'rb'))
@@ -152,7 +161,7 @@ def stanceInfo(data, dataIDs, template, obsID, label):
     results['stanceDictRight'] = stanceDict
     results['stepDictRight'] = stepDict
     results['tarsusStepListRight'] = tarsusStepList
-    pickle.dump(results, open(os.path.join(os.getcwd(), 'stanceinfo',label+'.p'), 'wb'))
+    pickle.dump(results, open(os.path.join(os.getcwd(), 'StanceInfo',label+'.p'), 'wb'))
 
 def runPWHamil(data, dataIDs, template, stanceInfoLabel, label):
     results = {}
@@ -170,38 +179,105 @@ def runPWHamil(data, dataIDs, template, stanceInfoLabel, label):
     pickle.dump(results, open(os.path.join(os.getcwd(), 'PWHamil',label+'.p'), 'wb'))
     return results
 
-def estimatesTableStanceInfo(estimatesLabel, label):
-    estimatesTable = loadEstimatesTable(estimatesLabel)
+def estimatesTableStanceInfo(estimatesTable, label):
+    #estimatesTable = loadEstimatesTable(estimatesLabel)
     results = {}
     qListLeft = deque()
     accelListLeft = deque()
     qListRight = deque()
     accelListRight = deque()
+
     for i in range(0, 32):
-        qListLeft.append((estimatesTable.ix[i, 'Roach_x_KalmanX_Mean'], estimatesTable.ix[i, 'Roach_y_KalmanX_Mean'], estimatesTable.ix[i, 'Roach_theta_KalmanX_Mean']))
-        accelListLeft.append((estimatesTable.ix[i, 'Roach_x_KalmanDDX_Mean'], estimatesTable.ix[i, 'Roach_y_KalmanDDX_Mean'], estimatesTable.ix[i, 'Roach_theta_KalmanDDX_Mean']))
+        #to left foot frame
+        qListLeft.append((estimatesTable.ix[i, 'Roach_x_KalmanX_Mean_C'], estimatesTable.ix[i, 'Roach_y_KalmanX_Mean_C'], estimatesTable.ix[i, 'Roach_theta_KalmanX_Mean_C']))
+        accelListLeft.append((estimatesTable.ix[i, 'Roach_x_KalmanDDX_Mean_C'], estimatesTable.ix[i, 'Roach_y_KalmanDDX_Mean_C'], estimatesTable.ix[i, 'Roach_theta_KalmanDDX_Mean']))
     results['qListLeft'] = qListLeft
     results['accelListLeft'] = accelListLeft
     for i in range(32, 64):
-        qListRight.append((estimatesTable.ix[i, 'Roach_x_KalmanX_Mean'], estimatesTable.ix[i, 'Roach_y_KalmanX_Mean'], estimatesTable.ix[i, 'Roach_theta_KalmanX_Mean']))
-        accelListRight.append((estimatesTable.ix[i, 'Roach_x_KalmanDDX_Mean'], estimatesTable.ix[i, 'Roach_y_KalmanDDX_Mean'], estimatesTable.ix[i, 'Roach_theta_KalmanDDX_Mean']))
+        qListRight.append((estimatesTable.ix[i, 'Roach_x_KalmanX_Mean_C'], estimatesTable.ix[i, 'Roach_y_KalmanX_Mean_C'], estimatesTable.ix[i, 'Roach_theta_KalmanX_Mean_C']))
+        accelListRight.append((estimatesTable.ix[i, 'Roach_x_KalmanDDX_Mean_C'], estimatesTable.ix[i, 'Roach_y_KalmanDDX_Mean_C'], estimatesTable.ix[i, 'Roach_theta_KalmanDDX_Mean']))
     results['qListRight'] = qListRight
     results['accelListRight'] = accelListRight
     pickle.dump(results, open(os.path.join(os.getcwd(), 'StanceInfo',label+'.p'), 'wb'))
+
     return results
 
-def runPWHamilEstimates(data, dataIDs, template, estimatesLabel, label):
+def estimatesTransform(estimatesLabel):
+    estimatesTable = loadEstimatesTable(estimatesLabel)
+
+    estimatesTable['TarsusBodyAvg1_x'] = (estimatesTable['TarsusBody1_x_KalmanX_Mean']  \
+    + estimatesTable['TarsusBody3_x_KalmanX_Mean'] + estimatesTable['TarsusBody5_x_KalmanX_Mean'])/3.0
+    estimatesTable['TarsusBodyAvg1_y'] = (estimatesTable['TarsusBody1_y_KalmanX_Mean'] \
+    + estimatesTable['TarsusBody3_y_KalmanX_Mean'] + estimatesTable['TarsusBody5_y_KalmanX_Mean'])/3.0
+    estimatesTable['TarsusBodyAvg2_x'] = (estimatesTable['TarsusBody2_x_KalmanX_Mean'] \
+    + estimatesTable['TarsusBody4_x_KalmanX_Mean'] + estimatesTable['TarsusBody6_x_KalmanX_Mean'])/3.0
+    estimatesTable['TarsusBodyAvg2_y'] = (estimatesTable['TarsusBody2_y_KalmanX_Mean'] \
+    + estimatesTable['TarsusBody4_y_KalmanX_Mean'] + estimatesTable['TarsusBody6_y_KalmanX_Mean'])/3.0
+
+    #Finding foot frame origin
+    zBodyLeft = estimatesTable['Roach_x_KalmanX_Mean'][0:32] + 1.j * estimatesTable['Roach_y_KalmanX_Mean'][0:32]
+    zFootAvgLeft = estimatesTable['TarsusBodyAvg1_x'][0:32] + 1.j * estimatesTable['TarsusBodyAvg1_y'][0:32]
+    zFootFrameOriginLeft = zBodyLeft + zFootAvgLeft * np.exp(list(1.j * estimatesTable['Roach_theta_KalmanX_Mean'][0:32]))
+    xPosAvgLeft = pd.Series(map(lambda x: x.real, zFootFrameOriginLeft)).mean()
+    yPosAvgLeft = pd.Series(map(lambda x: x.imag, zFootFrameOriginLeft)).mean()
+
+    zBodyRight = estimatesTable['Roach_x_KalmanX_Mean'][32:64] + 1.j * estimatesTable['Roach_y_KalmanX_Mean'][32:64]
+    zFootAvgRight = estimatesTable['TarsusBodyAvg2_x'][32:64] + 1.j * estimatesTable['TarsusBodyAvg2_y'][32:64]
+    zFootFrameOriginRight = zBodyRight + zFootAvgRight * np.exp(list(1.j * estimatesTable['Roach_theta_KalmanX_Mean'][32:64]))
+    xPosAvgRight = pd.Series(map(lambda x: x.real, zFootFrameOriginRight)).mean()
+    yPosAvgRight = pd.Series(map(lambda x: x.imag, zFootFrameOriginRight)).mean()
+
+    #Finding foot frame orientation
+    xFootLeft = np.hstack((estimatesTable['TarsusBody1_x_KalmanX_Mean'][0:32],estimatesTable['TarsusBody3_x_KalmanX_Mean'][0:32],estimatesTable['TarsusBody5_x_KalmanX_Mean'][0:32]))
+    yFootLeft = np.hstack((estimatesTable['TarsusBody1_y_KalmanX_Mean'][0:32],estimatesTable['TarsusBody3_y_KalmanX_Mean'][0:32],estimatesTable['TarsusBody5_y_KalmanX_Mean'][0:32]))
+    thetaFootLeft = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][0:32],estimatesTable['Roach_theta_KalmanX_Mean'][0:32],estimatesTable['Roach_theta_KalmanX_Mean'][0:32]))
+    zFootLeft = xFootLeft + 1.j * yFootLeft
+    zFootLeftTranform = np.hstack((zBodyLeft, zBodyLeft, zBodyLeft)) + zFootLeft * np.exp(list(1.j * thetaFootLeft))
+    xyF = np.matrix([map(lambda x: x.real, zFootLeftTranform), map(lambda x: x.imag, zFootLeftTranform)])
+    U, s, V = np.linalg.svd(xyF)
+    thetaPosAvgLeft = np.arctan2(U.item(1,0), U.item(0,0))
+    if abs(thetaPosAvgLeft) > np.pi/2:
+        thetaPosAvgLeft = np.arctan2(-1.0 * U.item(1,0), -1.0 * U.item(0,0))
+
+    xFootRight = np.hstack((estimatesTable['TarsusBody2_x_KalmanX_Mean'][32:64],estimatesTable['TarsusBody4_x_KalmanX_Mean'][32:64],estimatesTable['TarsusBody6_x_KalmanX_Mean'][32:64]))
+    yFootRight = np.hstack((estimatesTable['TarsusBody2_y_KalmanX_Mean'][32:64],estimatesTable['TarsusBody4_y_KalmanX_Mean'][32:64],estimatesTable['TarsusBody6_y_KalmanX_Mean'][32:64]))
+    thetaFootRight = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][32:64],estimatesTable['Roach_theta_KalmanX_Mean'][32:64],estimatesTable['Roach_theta_KalmanX_Mean'][32:64]))
+    zFootRight = xFootRight + 1.j * yFootRight
+    zFootRightTranform = np.hstack((zBodyRight, zBodyRight, zBodyRight)) + zFootRight * np.exp(list(1.j * thetaFootRight))
+    xyF = np.matrix([map(lambda x: x.real, zFootRightTranform), map(lambda x: x.imag, zFootRightTranform)])
+    U, s, V = np.linalg.svd(xyF)
+    thetaPosAvgRight = np.arctan2(U.item(1,0), U.item(0,0))
+    if abs(thetaPosAvgRight) > np.pi/2:
+        thetaPosAvgRight = np.arctan2(-1.0 * U.item(1,0), -1.0 * U.item(0,0))
+
+    #Putting body position and acceleration into footframe
+    zBodyLeftTransform = (zBodyLeft - (xPosAvgLeft + 1.j * yPosAvgLeft)) * np.exp(1.j * thetaPosAvgLeft)
+    zBodyRightTransform = (zBodyRight - (xPosAvgRight + 1.j * yPosAvgRight)) * np.exp(1.j * thetaPosAvgRight)
+    zBodyTransform = np.hstack((zBodyLeftTransform, zBodyRightTransform))
+    estimatesTable['Roach_x_KalmanX_Mean_C'] = map(lambda x: x.real, zBodyTransform)
+    estimatesTable['Roach_y_KalmanX_Mean_C'] = map(lambda x: x.imag, zBodyTransform)
+    zAccelLeftTransform = (estimatesTable['Roach_x_KalmanDDX_Mean'][0:32] + 1.j * estimatesTable['Roach_y_KalmanDDX_Mean'][0:32]) * np.exp(1.j * thetaPosAvgLeft)
+    zAccelRightTransform = (estimatesTable['Roach_x_KalmanDDX_Mean'][32:64] + 1.j * estimatesTable['Roach_y_KalmanDDX_Mean'][32:64]) * np.exp(1.j * thetaPosAvgRight)
+    zAccelBodyTransform = np.hstack((zAccelLeftTransform, zAccelRightTransform))
+    estimatesTable['Roach_x_KalmanDDX_Mean_C'] = map(lambda x: x.real, zAccelBodyTransform)
+    estimatesTable['Roach_y_KalmanDDX_Mean_C'] = map(lambda x: x.imag, zAccelBodyTransform)
+    #thetaFootFrame = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][0:32] - thetaPosAvgLeft, estimatesTable['Roach_theta_KalmanX_Mean'][32:64] - thetaPosAvgRight))
+    estimatesTable['Roach_theta_KalmanX_Mean_C'] = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][0:32] - thetaPosAvgLeft, estimatesTable['Roach_theta_KalmanX_Mean'][32:64] - thetaPosAvgRight))
+
+    return estimatesTable
+
+def runPWHamilEstimates(stanceLabel, label):
     results = {}
     V, variables = potentialFunction(3, 1, 2)
-    stanceDict = estimatesTabletoPWHamilInput(estimatesLabel)
+    stanceInfo = loadStanceInfo(stanceLabel)
     #print evaluatePotentialFunction(V, variables, [5, 2, 3])
     dV = gradientFunctions(V, variables)
     lList = gradientFunctionsToLambdas(dV, variables)
     results['dV'] = dV
     results['variables'] = variables
-    cLeft = fit(stanceDict['qListLeft'], stanceDict['accelListLeft'], lList)
+    cLeft = fit(stanceInfo['qListLeft'], stanceInfo['accelListLeft'], lList)
     results['cLeft'] = np.asarray(cLeft).reshape(-1)
-    cRight = fit(stanceDict['qListRight'], stanceDict['accelListRight'], lList)
+    cRight = fit(stanceInfo['qListRight'], stanceInfo['accelListRight'], lList)
     results['cRight'] = np.asarray(cRight).reshape(-1)
     pickle.dump(results, open(os.path.join(os.getcwd(), 'PWHamil',label+'.p'), 'wb'))
     return results
@@ -249,13 +325,39 @@ def transformation2(ddx_f, ddy_f, theta_fc):
     ddz_fc = ddz_f * np.exp(1.j * theta_fc)
     return ddz_fc.real, ddz_fc.imag
 
-def generatePWHamilTable(kalmanLabel, pwHamilLabel):
+def estimatesGeneratePWHamilTable(estimatesTable, pwHamilLabel):
     pwHamilResults = loadPWHamil(pwHamilLabel)
-    estimatesTable = loadEstimatesTable(kalmanLabel)
     lList = gradientFunctionsToLambdas(pwHamilResults['dV'], pwHamilResults['variables'])
 
     pwHamilTable = pd.DataFrame(index=range(64), columns=['DDX', 'DDY', 'DDTheta'])
+    qLeft = np.vstack((estimatesTable['Roach_x_KalmanX_Mean_C'][0:32], estimatesTable['Roach_y_KalmanX_Mean_C'][0:32], estimatesTable['Roach_theta_KalmanX_Mean_C'][0:32])).T
+    qRight = np.vstack((estimatesTable['Roach_x_KalmanX_Mean_C'][32:64], estimatesTable['Roach_y_KalmanX_Mean_C'][32:64], estimatesTable['Roach_theta_KalmanX_Mean_C'][32:64])).T
+    accelsLeft = evaluateGradientFunction(lList, np.asarray([pwHamilResults['cLeft']]).T, qLeft)
+    accelsRight = evaluateGradientFunction(lList, np.asarray([pwHamilResults['cRight']]).T, qRight)
+    pwHamilTable['DDX'] = np.hstack((accelsLeft[:,0], accelsRight[:,0]))
+    pwHamilTable['DDY'] = np.hstack((accelsLeft[:,1], accelsRight[:,1]))
+    pwHamilTable['DDTheta'] = np.hstack((accelsLeft[:,2], accelsRight[:,2]))
 
+    '''
+    plt.figure(1)
+    plt.plot(pwHamilTable['DDX'])
+    plt.figure(2)
+    plt.plot(pwHamilTable['DDY'])
+    plt.figure(3)
+    plt.plot(pwHamilTable['DDTheta'])
+    plt.show()
+    '''
+
+    return pwHamilTable
+
+    '''
+def generatePWHamilTable(estimatesLabel, pwHamilLabel):
+
+    pwHamilResults = loadPWHamil(pwHamilLabel)
+    estimatesTable = loadEstimatesTable(estimatesLabel)
+    lList = gradientFunctionsToLambdas(pwHamilResults['dV'], pwHamilResults['variables'])
+
+    pwHamilTable = pd.DataFrame(index=range(64), columns=['DDX', 'DDY', 'DDTheta'])
     (x, _, accelX) = kalman.columnTableX('Roach_x')
     (y, _, accelY) = kalman.columnTableX('Roach_y')
     (theta, _, accelTheta) = kalman.columnTableX('Roach_theta')
@@ -299,30 +401,51 @@ def generatePWHamilTable(kalmanLabel, pwHamilLabel):
     for i in range(0, 32):
         bodyX, bodyY, bodyTheta, xFoot, yFoot, thetaFoot = transformation1([fl1X.ix[i], fl3X.ix[i], fl5X.ix[i]],  \
         [fl1Y.ix[i], fl3Y.ix[i], fl5Y.ix[i]], x.ix[i], y.ix[i], theta.ix[i])
-        (xAccelPW, yAccelPW, thetaAccelPW) = evaluateGradientFunction(lList, pwHamilResults['cLeft'], (bodyX, bodyY, bodyTheta))
-        ddx_fc, ddy_fc = transformation2(xAccelPW, yAccelPW, thetaFoot)
+        accelsLeft = evaluateGradientFunction(lList, np.asarray([pwHamilResults['cLeft']]).T, np.array([[bodyX, bodyY, bodyTheta]]))
+        ddx_fc, ddy_fc = transformation2(accelsLeft[0,0], accelsLeft[0,1], accelsLeft[0,2])
         pwHamilTable.ix[i, 'DDX'] = ddx_fc
         pwHamilTable.ix[i, 'DDY'] = ddy_fc
-        pwHamilTable.ix[i, 'DDTheta'] = thetaAccelPW
+        pwHamilTable.ix[i, 'DDTheta'] = accelsLeft[0,2]
 
     for i in range(32, 64):
         bodyX, bodyY, bodyTheta, xFoot, yFoot, thetaFoot = transformation1([fl2X.ix[i], fl4X.ix[i], fl6X.ix[i]],  \
         [fl2Y.ix[i], fl4Y.ix[i], fl6Y.ix[i]], x.ix[i], y.ix[i], theta.ix[i])
-        (xAccelPW, yAccelPW, thetaAccelPW) = evaluateGradientFunction(lList, pwHamilResults['cRight'], (bodyX, bodyY, bodyTheta))
-        ddx_fc, ddy_fc = transformation2(xAccelPW, yAccelPW, thetaFoot)
+        accelsRight = evaluateGradientFunction(lList, np.asarray([pwHamilResults['cRight']]).T, np.array([[bodyX, bodyY, bodyTheta]]))
+        ddx_fc, ddy_fc = transformation2(accelsRight[0,0], accelsRight[0,1], accelsRight[0,2])
         pwHamilTable.ix[i, 'DDX'] = ddx_fc
         pwHamilTable.ix[i, 'DDY'] = ddy_fc
-        pwHamilTable.ix[i, 'DDTheta'] = thetaAccelPW
+        pwHamilTable.ix[i, 'DDTheta'] = accelsRight[0,2]
+        #pwHamilTable.ix[i, 'DDX'] = xAccelPW
+        #pwHamilTable.ix[i, 'DDY'] = yAccelPW
+        #pwHamilTable.ix[i, 'DDTheta'] = thetaAccelPW
+    '''
 
+def generatePWHamilTable(estimatesTable, pwHamilLabel):
+    #estimatesTable = loadEstimatesTable(estimatesLabel)
+    pwHamilResults = loadPWHamil(pwHamilLabel)
+    lList = gradientFunctionsToLambdas(pwHamilResults['dV'], pwHamilResults['variables'])
+
+    pwHamilTable = pd.DataFrame(index=range(64), columns=['DDX', 'DDY', 'DDTheta'])
+
+    qLeft = np.vstack((estimatesTable['Roach_x_KalmanX_Mean_C'][0:32], estimatesTable['Roach_y_KalmanX_Mean_C'][0:32], estimatesTable['Roach_theta_KalmanX_Mean_C'][0:32])).T
+    qLeft = np.vstack((estimatesTable['Roach_x_KalmanX_Mean_C'][0:32], estimatesTable['Roach_y_KalmanX_Mean_C'][0:32], estimatesTable['Roach_theta_KalmanX_Mean_C'][0:32])).T
+    qRight = np.vstack((estimatesTable['Roach_x_KalmanX_Mean_C'][32:64], estimatesTable['Roach_y_KalmanX_Mean_C'][32:64], estimatesTable['Roach_theta_KalmanX_Mean_C'][32:64])).T
+    accelsLeft = evaluateGradientFunction(lList, np.asarray([pwHamilResults['cLeft']]).T, qLeft)
+    accelsRight = evaluateGradientFunction(lList, np.asarray([pwHamilResults['cRight']]).T, qRight)
+    pwHamilTable['DDX'] = np.hstack((accelsLeft[:,0], accelsRight[:,0]))
+    pwHamilTable['DDY'] = np.hstack((accelsLeft[:,1], accelsRight[:,1]))
+    pwHamilTable['DDTheta'] = np.hstack((accelsLeft[:,2], accelsRight[:,2]))
     return pwHamilTable
 
-def plotPWHamil(label, color, pwHamilTable, kalmanTable):
-    (_, _, accelX) = kalman.columnTableX('Roach_x')
+
+def plotPWHamil(label, color, pwHamilTable, estimatesLabel):
+    estimatesTable = loadEstimatesTable(estimatesLabel)
+    (posX, _, accelX) = kalman.columnTableX('Roach_x')
     plt.figure(1,figsize=(12,8)); plt.clf()
     dataLegend = plt.plot(pwHamilTable.index, pwHamilTable['DDX'], 'k' + '.-', lw=3., markersize=12, label='pwHamil Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelX + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelX + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelX + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelX + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelX + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelX + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
     #plt.legend(handles=[dataLegend], loc=2, prop={'size':12})
     plt.xlabel('phase (radians)')
     plt.xlim(0,64)
@@ -333,13 +456,14 @@ def plotPWHamil(label, color, pwHamilTable, kalmanTable):
     ax.set_yticklabels(ax.get_yticks())
     plt.tight_layout()
     plt.savefig('PWHamil/' + label + '-ddx.svg')
+    plt.show()
 
-    (_, _, accelY) = kalman.columnTableX('Roach_y')
+    (posY, _, accelY) = kalman.columnTableX('Roach_y')
     plt.figure(2,figsize=(12,8)); plt.clf()
     dataLegend = plt.plot(pwHamilTable.index, pwHamilTable['DDY'], 'k' + '.-', lw=3., markersize=12, label='pwHamil Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelY + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelY + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelY + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelY + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelY + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelY + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
     #plt.legend(handles=[dataLegend], loc=2, prop={'size':12})
     plt.xlabel('phase (radians)')
     plt.xlim(0,64)
@@ -351,12 +475,12 @@ def plotPWHamil(label, color, pwHamilTable, kalmanTable):
     plt.tight_layout()
     plt.savefig('PWHamil/' + label + '-ddy.svg')
 
-    (_, _, accelTheta) = kalman.columnTableX('Roach_theta')
+    (posTheta, _, accelTheta) = kalman.columnTableX('Roach_theta')
     plt.figure(3,figsize=(12,8)); plt.clf()
     dataLegend = plt.plot(pwHamilTable.index, pwHamilTable['DDTheta'], 'k' + '.-', lw=3., markersize=12, label='pwHamil Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelTheta + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelTheta + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
-    dataLegend = plt.plot(kalmanTable.index, kalmanTable[accelTheta + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelTheta + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelTheta + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[accelTheta + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
     #plt.legend(handles=[dataLegend], loc=2, prop={'size':12})
     plt.xlabel('phase (radians)')
     plt.xlim(0,64)
@@ -367,6 +491,52 @@ def plotPWHamil(label, color, pwHamilTable, kalmanTable):
     ax.set_yticklabels(ax.get_yticks())
     plt.tight_layout()
     plt.savefig('PWHamil/' + label + '-ddtheta.svg')
+
+    plt.figure(4,figsize=(12,8)); plt.clf()
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posX + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posX + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posX + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    #plt.legend(handles=[dataLegend], loc=2, prop={'size':12})
+    plt.xlabel('phase (radians)')
+    plt.xlim(0,64)
+    plt.ylabel('x (cm)')
+    plt.grid(True)
+    ax = plt.gca()
+    ax.set_xticklabels(ax.get_xticks())
+    ax.set_yticklabels(ax.get_yticks())
+    plt.tight_layout()
+    plt.savefig('PWHamil/' + label + '-x.svg')
+    plt.show()
+
+    plt.figure(5,figsize=(12,8)); plt.clf()
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posY + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posY + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posY + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    #plt.legend(handles=[dataLegend], loc=2, prop={'size':12})
+    plt.xlabel('phase (radians)')
+    plt.xlim(0,64)
+    plt.ylabel('ddy (cm)')
+    plt.grid(True)
+    ax = plt.gca()
+    ax.set_xticklabels(ax.get_xticks())
+    ax.set_yticklabels(ax.get_yticks())
+    plt.tight_layout()
+    plt.savefig('PWHamil/' + label + '-y.svg')
+
+    plt.figure(6,figsize=(12,8)); plt.clf()
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posTheta + '_Mean'], color + '.-', lw=3., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posTheta + '_01'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    dataLegend = plt.plot(estimatesTable.index, estimatesTable[posTheta + '_99'], color + '-', lw=1., markersize=12, label='kalman Estimate')
+    #plt.legend(handles=[dataLegend], loc=2, prop={'size':12})
+    plt.xlabel('phase (radians)')
+    plt.xlim(0,64)
+    plt.ylabel('ddtheta (deg)')
+    plt.grid(True)
+    ax = plt.gca()
+    ax.set_xticklabels(ax.get_xticks())
+    ax.set_yticklabels(ax.get_yticks())
+    plt.tight_layout()
+    plt.savefig('PWHamil/' + label + '-theta.svg')
 
 def runPlotPWHamil():
     pwHamilTableControl = generatePWHamilTable('control', 'control')
@@ -379,6 +549,39 @@ def runPlotPWHamil():
     plotPWHamil('mass-150903', 'r', pwHamilTableMass, estimatesMass)
     plotPWHamil('inertia-150903', 'g', pwHamilTableInertia, estimatesInertia)
 
+def fitTest(samples):
+    #Make K Symmetric
+    K = np.random.rand(3,3)
+    K[1,0] = K[0,1]
+    K[2,0] = K[0,2]
+    K[2,1] = K[1,2]
+    q_o = np.random.rand(3)
+    qList = np.random.rand(samples,3)
+
+    #DqV = lambda q : np.asarray((2*np.dot(K,q.T)-2*np.dot(K,q_o.T)).T)
+    DqV = lambda q : np.asarray([2*np.dot(K,q)-2*np.dot(K,q_o)])
+    #DqV = lambda q : np.asarray([2*np.dot(K,q_o)])
+
+    #accelList = map(DqV, qList)
+    accelList = DqV(qList[0])
+    for i in range(1,samples):
+        accelList = np.vstack((accelList, DqV(qList[i])))
+
+    accelList = accelList #+ np.random.normal(0, .1, (samples,3))
+    V, variables = potentialFunction(3, 1, 2)
+    dV = gradientFunctions(V, variables)
+    lList = gradientFunctionsToLambdas(dV, variables)
+
+    C = fit(qList, accelList, lList)
+
+    accs = evaluateGradientFunction(lList, C, qList)
+
+    #for i in range(1,samples):
+        #accs = np.vstack((accs, evaluateGradientFunction(lList, C, qList[i])))
+    print accs
+    print accs - accelList
+
+
 if __name__ == "__main__":
     saveDir = 'StableOrbit'
 
@@ -386,51 +589,92 @@ if __name__ == "__main__":
     mo = model.ModelOptimize(mw)
     mc = model.ModelConfiguration(mw)
 
+    #Checks to see if gradient functions are correct
+    #fitTest(40)
 
-    results = estimatesTableStanceInfo('control', 'control-estimates')
-    results = estimatesTableStanceInfo('mass', 'mass-estimates')
-    results = estimatesTableStanceInfo('inertia', 'inertia-estimates')
+    #Run PWHamil on Estimates
 
+    estimatesTable = estimatesTransform('control-estimates')
+    results = estimatesTableStanceInfo(estimatesTable, 'control-estimates')
+    runPWHamilEstimates('control-estimates', 'control-estimates')
+    pwHamilTable = estimatesGeneratePWHamilTable(estimatesTable, 'control-estimates')
+    #plotPWHamil('011218-control-estimates', 'b', pwHamilTable, 'control-raw2')
 
-    #Generate stance info
+    estimatesTable = estimatesTransform('mass-estimates')
+    results = estimatesTableStanceInfo(estimatesTable, 'mass-estimates')
+    runPWHamilEstimates('mass-estimates', 'mass-estimates')
+    pwHamilTable = estimatesGeneratePWHamilTable(estimatesTable, 'mass-estimates')
+    #plotPWHamil('011218-mass-estimates', 'r', pwHamilTable, 'mass-estimates')
+
+    estimatesTable = estimatesTransform('inertia-estimates')
+    results = estimatesTableStanceInfo(estimatesTable, 'inertia-estimates')
+    runPWHamilEstimates('inertia-estimates', 'inertia-estimates')
+    pwHamilTable = estimatesGeneratePWHamilTable(estimatesTable, 'inertia-estimates')
+    #plotPWHamil('011218-inertia-estimates', 'g', pwHamilTable, 'inertia-estimates')
+
     '''
-    mw.csvLoadObs([0, 1, 2])
-    template = mc.jsonLoadTemplate('templateControl')
+    results, estimatesTable = estimatesTableStanceInfo('mass-raw', 'mass-raw')
+    runPWHamilEstimates('mass-raw', 'mass-raw')
+    pwHamilTable = estimatesGeneratePWHamilTable(estimatesTable, 'mass-raw')
+    plotPWHamil('test', 'r', pwHamilTable, 'mass-raw')
+
+    results, estimatesTable = estimatesTableStanceInfo('inertia-raw', 'inertia-raw')
+    runPWHamilEstimates('inertia-raw', 'inertia-raw')
+    pwHamilTable = estimatesGeneratePWHamilTable(estimatesTable, 'inertia-raw')
+    plotPWHamil('test', 'g', pwHamilTable, 'inertia-raw')
+    '''
+
+    #Real Data
+    '''
     dataIDs = mo.treatments.query("Treatment == 'control'").index
     mw.csvLoadData(dataIDs)
-    stanceInfo(mw.data, dataIDs, template, 0, 'control')
-    dataIDs = mo.treatments.query("Treatment == 'mass'").index
-    mw.csvLoadData(dataIDs)
-    stanceInfo(mw.data, dataIDs, template, 1, 'mass')
-    dataIDs = mo.treatments.query("Treatment == 'inertia'").index
-    mw.csvLoadData(dataIDs)
-    stanceInfo(mw.data, dataIDs, template, 2, 'inertia')
-    '''
-
-    '''
-    #dataIDs = mo.treatments.query("Treatment == 'control' and AnimalID == 2").index
-    dataIDs = mo.treatments.query("Treatment == 'control'").index
-    mw.csvLoadData(dataIDs)
     template = mc.jsonLoadTemplate('templateControl')
-    runPWHamil(mw.data, dataIDs, template, 'control', 'control')
+    runPWHamil(mw.data, dataIDs, template, 'control-raw', 'control-20151110')
+    estimatesTable = estimatesTransform('control-raw')
+    pwHamilTable = generatePWHamilTable(estimatesTable, 'control-20151110')
+    plotPWHamil('151118-control', 'b', pwHamilTable, 'control-raw')
 
     dataIDs = mo.treatments.query("Treatment == 'mass'").index
     mw.csvLoadData(dataIDs)
     template = mc.jsonLoadTemplate('templateMass')
-    runPWHamil(mw.data, dataIDs, template, 'mass', 'mass')
+    runPWHamil(mw.data, dataIDs, template, 'mass', 'mass-20151110')
+    estimatesTable = estimatesTransform('mass-raw')
+    pwHamilTable = generatePWHamilTable(estimatesTable, 'mass-20151110')
+    plotPWHamil('151118-mass', 'r', pwHamilTable, 'mass-raw')
 
     dataIDs = mo.treatments.query("Treatment == 'inertia'").index
     mw.csvLoadData(dataIDs)
     template = mc.jsonLoadTemplate('templateInertia')
-    runPWHamil(mw.data, dataIDs, template, 'inertia', 'inertia')
+    runPWHamil(mw.data, dataIDs, template, 'inertia', 'inertia-20151110')
+    estimatesTable = estimatesTransform('inertia-raw')
+    pwHamilTable = generatePWHamilTable(estimatesTable, 'inertia-20151110')
+    plotPWHamil('151118-inertia', 'g', pwHamilTable, 'inertia-raw')
+    '''
 
+    '''
     runPlotPWHamil()
     '''
 
-    pwHamilTableControl = generatePWHamilTable('control-raw', 'control')
-    pwHamilTableMass = generatePWHamilTable('mass-raw', 'mass')
-    pwHamilTableInertia = generatePWHamilTable('inertia-raw', 'inertia')
+    #Generate stanceinfo
 
+    mw.csvLoadObs([0, 1, 2])
+    template = mc.jsonLoadTemplate('templateControl')
+    '''
+    dataIDs = mo.treatments.query("Treatment == 'control'").index
+    mw.csvLoadData(dataIDs)
+    stanceInfo(mw.data, dataIDs, template, 0, 'control-raw')
+
+    template = mc.jsonLoadTemplate('templateMass')
+    dataIDs = mo.treatments.query("Treatment == 'mass'").index
+    mw.csvLoadData(dataIDs)
+    stanceInfo(mw.data, dataIDs, template, 1, 'mass-raw')
+    template = mc.jsonLoadTemplate('templateInertia')
+    dataIDs = mo.treatments.query("Treatment == 'inertia'").index
+    mw.csvLoadData(dataIDs)
+    stanceInfo(mw.data, dataIDs, template, 2, 'inertia-raw')
+    '''
+
+    #Sam's Stuff
     '''
     V, variables = potentialFunction(3, 1, 2)
     #print evaluatePotentialFunction(V, variables, [5, 2, 3])
@@ -469,7 +713,6 @@ if __name__ == "__main__":
     #Sam's Stuff
     '''
     sum([c[j] * lList[j](*q) for j in range(len(c))])
-
 
 
     Nd = 3

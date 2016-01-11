@@ -10,6 +10,7 @@ import pickle
 import scipy
 from scipy import signal
 from scipy import interpolate
+from scipy import integrate
 import pandas as pd
 import math
 from collections import deque
@@ -17,7 +18,6 @@ import copy
 import random
 import footlocation as fl
 from shrevz import util as shutil
-import multiprocessing as mp
 
 saveDir = 'StableOrbit'
 
@@ -30,6 +30,7 @@ mc = model.ModelConfiguration(mw)
 GLOBAL_NOISE = 0.001**2
 GRID_SAMPLES = 64
 ORDER = 3
+STRIDE_FREQUENCY = 12
 
 def modelAccel(observation, template):
     observation['accx'] = 0
@@ -344,7 +345,6 @@ def dataKalman(X_, kalmanFilter, decVar):
 
     xDim = 3
     zDim = 1
-
     if decVar != None:
         f = eval('kalman_' + kalmanFilter)(template, xDim, zDim, X_, decVar)
     else:
@@ -417,6 +417,7 @@ def kalmanFilterData(data, dataIDs, column, kalmanFilter, kt, decVar = None):
         currentData[columnddX][indexStart:indexEnd] = x[:,2]
     return data
 
+'''
 def kalmanBootstrap(data, dataIDs, samples, column):
     random.seed(2)
     means = {}
@@ -438,8 +439,9 @@ def kalmanBootstrap(data, dataIDs, samples, column):
         mean = mean/len(dataIDs)
         means[i] = mean
     return means
+'''
 
-def kalmanBootstrapShai(data, dataIDs, samples, column):
+def kalmanBootstrap(data, dataIDs, samples, column):
     random.seed(2)
     means = {}
     (columnX, columndX, columnddX) = columnTableX(column)
@@ -468,6 +470,66 @@ def kalmanBootstrapShai(data, dataIDs, samples, column):
         mean[columnX] = fsX.val(grid)[:,0].real
         mean[columndX] = fsdX.val(grid)[:,0].real
         mean[columnddX] = fsddX.val(grid)[:,0].real
+        #mean = mean/len(dataIDs)
+        means[i] = mean
+    return means
+
+def integrateColumn(mean, columnX, columnDDX):
+    DX = np.zeros((63,1))
+    X = np.zeros((62,1))
+    for i in range(63):
+        DX[i,0] = integrate.quad(lambda i: mean.ix[int(i), columnDDX], 0, i+1)[0]
+    DX = (DX - np.mean(DX))/np.power(STRIDE_FREQUENCY,2)
+    for i in range(62):
+        X[i,0] = integrate.quad(lambda i: DX[int(i), 0], 0, i+1)[0]
+    X = (X - np.mean(X))/np.power(STRIDE_FREQUENCY,2)
+
+    mean[columnX][1:63] = X[:,0]
+    mean[columnX][0] = mean[columnX][1] - (mean[columnX][1] - mean[columnX][62])/3
+    mean[columnX][63] = mean[columnX][62] + (mean[columnX][1] - mean[columnX][62])/3
+    return mean
+
+def kalmanBootstrapShai(data, dataIDs, samples, column):
+    random.seed(2)
+    means = {}
+    (columnX, columndX, columnddX) = columnTableX(column)
+    columnddXTEST = columnddX + '_TEST'
+    for i in range(samples):
+        randomDataIDs = np.random.choice(dataIDs, len(dataIDs))
+        mean = pd.DataFrame(columns=[columnX, columndX, columnddX, columnddXTEST], index=range(GRID_SAMPLES))
+        mean[columnX] = 0.0
+        mean[columndX] = 0.0
+        mean[columnddX] = 0.0
+        phase = np.array([[]])
+        valuesX = np.array([[]])
+        valuesdX = np.array([[]])
+        valuesddX = np.array([[]])
+        for dataID in randomDataIDs:
+            phase = np.hstack((phase, data[dataID]['Roach_xv_phase'][0:283].dropna()[np.newaxis,:]))
+            valuesX = np.hstack((valuesX, data[dataID][columnX][0:283].dropna()[np.newaxis,:]))
+            valuesdX = np.hstack((valuesdX, data[dataID][columndX][0:283].dropna()[np.newaxis,:]))
+            valuesddX = np.hstack((valuesddX, data[dataID][columnddX][0:283].dropna()[np.newaxis,:]))
+        fsX = shutil.FourierSeries()
+        fsdX = shutil.FourierSeries()
+        fsddX = shutil.FourierSeries()
+        fsX.fit(ORDER, copy.deepcopy(phase), valuesX)
+        fsdX.fit(ORDER, copy.deepcopy(phase), valuesdX)
+        fsddX.fit(ORDER, copy.deepcopy(phase), valuesddX)
+        fsddXTEST = copy.deepcopy(fsX)
+        fsddXTEST = fsddXTEST.diff().diff()
+        grid  = np.arange(GRID_SAMPLES)[np.newaxis,:] * (2*np.pi)/GRID_SAMPLES
+        mean[columnX] = fsX.val(grid)[:,0].real
+        mean[columndX] = fsdX.val(grid)[:,0].real
+        mean[columnddX] = fsddX.val(grid)[:,0].real
+        mean[columnddXTEST] = fsddXTEST.val(grid)[:,0].real * np.power(STRIDE_FREQUENCY,2)
+        #Derivative
+        mean[columnddX] = fsddXTEST.val(grid)[:,0].real
+
+        #Integrate
+        '''
+        mean = integrateColumn(mean, columnX, columnddX)
+        '''
+
         #mean = mean/len(dataIDs)
         means[i] = mean
     return means
@@ -512,6 +574,54 @@ def kalmanMeanStats(means, column):
 
     return meanStats
 
+def kalmanMeanStatsShai(means, column):
+    meansList_x = {}
+    meansList_dx = {}
+    meansList_ddx = {}
+    meansList_ddxTEST = {}
+    (columnX, columndX, columnddX) = columnTableX(column)
+    columnddXTEST = columnddX + '_TEST'
+    for i in range(GRID_SAMPLES):
+        meansList_x[i] = deque()
+        meansList_dx[i] = deque()
+        meansList_ddx[i] = deque()
+        meansList_ddxTEST[i] = deque()
+
+    for meanID in means.keys():
+        for i in range(GRID_SAMPLES):
+            meansList_x[i].append(means[meanID].ix[i, columnX])
+            meansList_dx[i].append(means[meanID].ix[i, columndX])
+            meansList_ddx[i].append(means[meanID].ix[i, columnddX])
+            meansList_ddxTEST[i].append(means[meanID].ix[i, columnddXTEST])
+
+    columns=[columnX + '_Mean', columnX + '_01', columnX + '_99' \
+    ,columndX + '_Mean', columndX + '_01', columndX + '_99' \
+    ,columnddX + '_Mean', columnddX + '_01', columnddX + '_99' \
+    ,columnddXTEST + '_Mean', columnddXTEST + '_01', columnddXTEST + '_99']
+    meanStats = pd.DataFrame(columns=columns, index=range(GRID_SAMPLES))
+
+    for i in range(GRID_SAMPLES):
+        xList = pd.Series(meansList_x[i])
+        dxList = pd.Series(meansList_dx[i])
+        ddxList = pd.Series(meansList_ddx[i])
+        ddxTESTList = pd.Series(meansList_ddxTEST[i])
+        if all(np.isnan(a) for a in xList):
+            continue
+        meanStats.ix[i, columnX + '_Mean'] = xList.mean()
+        meanStats.ix[i, columndX + '_Mean'] = dxList.mean()
+        meanStats.ix[i, columnddX + '_Mean'] = ddxList.mean()
+        meanStats.ix[i, columnddXTEST + '_Mean'] = ddxTESTList.mean()
+        meanStats.ix[i, columnX + '_01'] = xList.quantile(q=[.01]).ix[.01]
+        meanStats.ix[i, columndX + '_99'] = dxList.quantile(q=[.01]).ix[.01]
+        meanStats.ix[i, columnddX + '_01'] = ddxList.quantile(q=[.01]).ix[.01]
+        meanStats.ix[i, columnddXTEST + '_01'] = ddxTESTList.quantile(q=[.01]).ix[.01]
+        meanStats.ix[i, columnX + '_99'] = xList.quantile(q=[.99]).ix[.99]
+        meanStats.ix[i, columndX + '_01'] = dxList.quantile(q=[.99]).ix[.99]
+        meanStats.ix[i, columnddX + '_99'] = ddxList.quantile(q=[.99]).ix[.99]
+        meanStats.ix[i, columnddXTEST + '_99'] = ddxTESTList.quantile(q=[.99]).ix[.99]
+
+    return meanStats
+
 def kalmanDataPlotMeanStats(meanStats, column):
     (columnX, columndX, columnddX) = columnTableX(column)
     xlim = 2*np.pi
@@ -532,11 +642,19 @@ def kalmanDataPlotMeanStats(meanStats, column):
     ax.set_xlabel('phase (radians)')
     plt.show()
 
+
 def bootstrapDataKalman(data, dataIDs, samples, column, kalmanFilter, kt, decVar = None):
     data = kalmanFilterData(data, dataIDs, column, kalmanFilter, kt, decVar)
-    means = kalmanBootstrapShai(data, dataIDs, samples, column)
+    means = kalmanBootstrap(data, dataIDs, samples, column)
     meanStats = kalmanMeanStats(means, column)
     return meanStats
+'''
+def bootstrapDataKalmanShai(data, dataIDs, samples, column, kalmanFilter, kt, decVar = None):
+    data = kalmanFilterData(data, dataIDs, column, kalmanFilter, kt, decVar)
+    means = kalmanBootstrapShai(data, dataIDs, samples, column)
+    meanStats = kalmanMeanStatsShai(means, column)
+    return meanStats
+'''
 
 def kalmanDataFigures(saveLabel, color, meanStatsX, meanStatsY, meanStatsTheta, meanStatsPitch, meanStatsRoll):
     period = 2*np.pi
@@ -881,17 +999,17 @@ def generateFigs(saveLabel, color, data, dataIDs, samples, template):
 
     ktx = KalmanTuner('tune_x2', template, 'x', [template['v']*template['dt']/50, .0001 , 1000.0])
     ox = spo.leastsq(ktx.costx, ktx.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-1, 1e-2])
-    data =  dTrend(data, dataIDs, 'Roach_x')
-    meanStatsX = bootstrapDataKalman(mw.data, dataIDs, samples, 'Roach_x', 'tune_x2', ktx, ox[0])
+    data, dtrend_X =  dTrend(data, dataIDs, 'Roach_x')
+    meanStatsX = bootstrapDataKalman(data, dataIDs, samples, 'Roach_x', 'tune_x2', ktx, ox[0])
 
     kty = KalmanTuner('tune_x2', template, 'y', [template['v']*template['dt']/100, .0001, 1000.0])
     oy = spo.leastsq(kty.costy, kty.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-2, 1e-3])
-    data =  dTrend(data, dataIDs, 'Roach_y')
-    meanStatsY = bootstrapDataKalman(mw.data, dataIDs, samples, 'Roach_y', 'tune_x2', kty, oy[0])
+    data, dtrend_X =  dTrend(data, dataIDs, 'Roach_y')
+    meanStatsY = bootstrapDataKalman(data, dataIDs, samples, 'Roach_y', 'tune_x2', kty, oy[0])
 
     kttheta = KalmanTuner('tune_x2', template, 'theta', [template['theta']*template['dt']/50, .0001, 1000.0])
     otheta = spo.leastsq(kttheta.costx, kttheta.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-1, 1e-2])
-    meanStatsTheta = bootstrapDataKalman(mw.data, dataIDs, samples, 'Roach_theta', 'tune_x2', kttheta, otheta[0])
+    meanStatsTheta = bootstrapDataKalman(data, dataIDs, samples, 'Roach_theta', 'tune_x2', kttheta, otheta[0])
 
     for dataID in dataIDs:
         data[dataID]['Roach_pitch'] =  data[dataID]['Roach_pitch'] * (2 * np.pi)/360
@@ -968,14 +1086,14 @@ def dataToEstimatesTable(column, meanStats, estimatesTable):
 def generateEstimateTable(label, data, dataIDs, samples, template, obsID):
     mw.csvLoadData(dataIDs)
 
-    data, thetaMean = thetaCorrection(data, dataIDs)
+    #data, thetaMean = thetaCorrection(data, dataIDs)
 
-    data, dtrend_X =  dTrend(data, dataIDs, 'Roach_x')
+    #data, dtrend_X =  dTrend(data, dataIDs, 'Roach_x')
     ktx = KalmanTuner('tune_x2', template, 'x', [template['v']*template['dt']/50, .0001 , 1000.0], obsID)
     ox = spo.leastsq(ktx.costx, ktx.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-1, 1e-2])
     meanStatsX = bootstrapDataKalman(data, dataIDs, samples, 'Roach_x', 'tune_x2', ktx, ox[0])
 
-    data, dtrend_X =  dTrend(data, dataIDs, 'Roach_y')
+    #data, dtrend_X =  dTrend(data, dataIDs, 'Roach_y')
     kty = KalmanTuner('tune_x2', template, 'y', [template['v']*template['dt']/100, .0001, 1000.0], obsID)
     oy = spo.leastsq(kty.costy, kty.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-2, 1e-3])
     meanStatsY = bootstrapDataKalman(data, dataIDs, samples, 'Roach_y', 'tune_x2', kty, oy[0])
@@ -1037,7 +1155,7 @@ def generateEstimateTable(label, data, dataIDs, samples, template, obsID):
 
     #estimates[label] = estimatesTable
     #pickle.dump(estimates, open( "estimates.p", "wb" ))
-    pickle.dump(estimatesTable, open(os.path.join(os.getcwd(), 'estimates',label+'.p'), 'wb'))
+    pickle.dump(estimatesTable, open(os.path.join(os.getcwd(), 'Estimates',label+'.p'), 'wb'))
     return estimatesTable
 
 def checkKalmanFilter(data, dataID, template, column, var):
@@ -1117,22 +1235,69 @@ class KalmanTuner(object):
         return np.r_[(x[:,2] - self.ddX_)*1e-2, (x[:,1] - self.dX_)*1e-1, (x[:,0] - self.X_)*1e-2]
 
 def dataEstimates(data, dataID, template, obsID):
-    thetaCorrection(data, [dataID])
+    data, thetaMean = thetaCorrection(data, [dataID])
 
     ktx = KalmanTuner('tune_x2', template, 'x', [template['v']*template['dt']/50, .0001 , 1000.0], obsID)
     ox = spo.leastsq(ktx.costx, ktx.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-1, 1e-2])
-    data =  dTrend(data, [dataID], 'Roach_x')
+    data, dtrend_x = dTrend(copy.deepcopy(data), [dataID], 'Roach_x')
     data = kalmanFilterData(data, [dataID], 'Roach_x', 'tune_x2', ktx, ox[0])
 
     kty = KalmanTuner('tune_x2', template, 'y', [template['v']*template['dt']/100, .0001, 1000.0], obsID)
     oy = spo.leastsq(kty.costy, kty.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-2, 1e-3])
-    data =  dTrend(data, [dataID], 'Roach_y')
+    data, dtrend_x = dTrend(data, [dataID], 'Roach_y')
     data = kalmanFilterData(data, [dataID], 'Roach_y', 'tune_x2', kty, oy[0])
 
     kttheta = KalmanTuner('tune_x2', template, 'theta', [template['theta']*template['dt']/50, .0001, 1000.0], obsID)
     otheta = spo.leastsq(kttheta.costx, kttheta.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-1, 1e-2])
     data = kalmanFilterData(data, [dataID], 'Roach_theta', 'tune_x2', kttheta, otheta[0])
     return data
+
+def TestShai(data, dataIDs, template, samples, obsID):
+    thetaCorrection(data, dataIDs)
+
+    ktx = KalmanTuner('tune_x2', template, 'x', [template['v']*template['dt']/50, .0001 , 1000.0], obsID)
+    ox = spo.leastsq(ktx.costx, ktx.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-1, 1e-2])
+    data, dtrend_X =  dTrend(data, dataIDs, 'Roach_x')
+    meanStatsX = bootstrapDataKalman2(data, dataIDs, samples, 'Roach_x', 'tune_x2', ktx, ox[0])
+
+    kty = KalmanTuner('tune_x2', template, 'y', [template['v']*template['dt']/100, .0001, 1000.0], obsID)
+    oy = spo.leastsq(kty.costy, kty.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-2, 1e-3])
+    data, dtrend_X =  dTrend(data, dataIDs, 'Roach_y')
+    meanStatsY = bootstrapDataKalman2(data, dataIDs, samples, 'Roach_y', 'tune_x2', kty, oy[0])
+
+    kttheta = KalmanTuner('tune_x2', template, 'theta', [template['theta']*template['dt']/50, .0001, 1000.0], obsID)
+    otheta = spo.leastsq(kttheta.costx, kttheta.decVar, full_output=True, maxfev=100, diag=[1e3, 1e-1, 1e-2])
+    meanStatsTheta = bootstrapDataKalman2(data, dataIDs, samples, 'Roach_theta', 'tune_x2', kttheta, otheta[0])
+
+    plt.figure(1, figsize=(10, 10))
+    plt.title('DDX Kalman vs DDX Shai')
+    plt.plot(meanStatsX['Roach_x_KalmanDDX_Mean'],'r.-')
+    plt.plot(meanStatsX['Roach_x_KalmanDDX_TEST_Mean'],'bo')
+
+    plt.figure(2, figsize=(10, 10))
+    plt.title('X Kalman vs DDX Shai')
+    plt.plot(meanStatsX['Roach_x_KalmanX_Mean'],'r-')
+    plt.plot(meanStatsX['Roach_x_KalmanDDX_TEST_Mean'],'bo')
+
+    plt.figure(3, figsize=(10, 10))
+    plt.title('DDY Kalman vs DDY Shai')
+    plt.plot(meanStatsY['Roach_y_KalmanDDX_Mean'],'r.-')
+    plt.plot(meanStatsY['Roach_y_KalmanDDX_TEST_Mean'],'bo')
+
+    plt.figure(4, figsize=(10, 10))
+    plt.title('Y Kalman vs DDY Shai')
+    plt.plot(meanStatsY['Roach_y_KalmanX_Mean'],'r-')
+    plt.plot(meanStatsY['Roach_y_KalmanDDX_TEST_Mean'],'bo')
+
+    plt.figure(5, figsize=(10, 10))
+    plt.title('DDXTheta Kalman vs DDTheta Shai')
+    plt.plot(meanStatsTheta['Roach_theta_KalmanDDX_Mean'],'r.-')
+    plt.plot(meanStatsTheta['Roach_theta_KalmanDDX_TEST_Mean'],'bo')
+
+    plt.figure(6, figsize=(10, 10))
+    plt.title('Theta Kalman vs DDTheta Shai')
+    plt.plot(meanStatsTheta['Roach_theta_KalmanX_Mean'],'r-')
+    plt.plot(meanStatsTheta['Roach_theta_KalmanDDX_TEST_Mean'],'bo')
 
 if __name__ == "__main__":
     #generating figures
@@ -1146,25 +1311,30 @@ if __name__ == "__main__":
     mw.csvLoadData([0])
     template = mc.jsonLoadTemplate('templateControl')
 
+    #Testing
+    '''
+    dataIDs = [0,1,2]
+    mw.csvLoadData(dataIDs)
+    template = mc.jsonLoadTemplate('templateControl')
+    TestShai(mw.data, dataIDs, template, samples, 0)
+    '''
+
     #acceleration estimates
-    '''
-    data = dataEstimates(mw.data, 0, template)
-    '''
 
     dataIDs = mo.treatments.query("Treatment == 'control'").index
     mw.csvLoadData(dataIDs)
     template = mc.jsonLoadTemplate('templateControl')
-    estimatesTable = generateEstimateTable('control', mw.data, dataIDs, samples, template, 0)
+    estimatesTable = generateEstimateTable('control-estimates', mw.data, dataIDs, samples, template, 0)
 
     dataIDs = mo.treatments.query("Treatment == 'mass'").index
     mw.csvLoadData(dataIDs)
-    #template = mc.jsonLoadTemplate('templateMass')
-    estimatesTable = generateEstimateTable('mass', mw.data, dataIDs, samples, template, 1)
+    template = mc.jsonLoadTemplate('templateMass')
+    estimatesTable = generateEstimateTable('mass-estimates', mw.data, dataIDs, samples, template, 1)
 
     dataIDs = mo.treatments.query("Treatment == 'inertia'").index
     mw.csvLoadData(dataIDs)
-    #template = mc.jsonLoadTemplate('templateInertia')
-    estimatesTable = generateEstimateTable('inertia', mw.data, dataIDs, samples, template, 2)
+    template = mc.jsonLoadTemplate('templateInertia')
+    estimatesTable = generateEstimateTable('inertia-estimates', mw.data, dataIDs, samples, template, 2)
 
     #Saving Tarsus trajectories
     '''
@@ -1186,7 +1356,6 @@ if __name__ == "__main__":
 
     dataIDs = mo.treatments.query("Treatment == 'inertia'").index
     generateFigs('150828-inertia', 'g', mw.data, dataIDs, samples, template)
-
 
     for i in [2,4,6,7,8,9]:
         dataIDs = mo.treatments.query("Treatment == 'control' and AnimalID == " + str(i)).index

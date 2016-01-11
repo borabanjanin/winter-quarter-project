@@ -639,7 +639,6 @@ def stanceOrientation(data, steps, columnListPostion, columnListHeading):
             zFootTransform = zBody + zFoot * np.exp(1.j * data['Roach_theta'][step[0]:step[1]+1])
             xHead.extendleft(deque(zFootTransform.real))
             yHead.extendleft(deque(zFootTransform.imag))
-
         xy = np.matrix([xHead, yHead])
         U, s, V = np.linalg.svd(xy)
         xPosAvg = pd.Series(xPos).mean()
@@ -651,7 +650,7 @@ def stanceOrientation(data, steps, columnListPostion, columnListHeading):
 
     return stances
 
-def findStanceOrientation(data, stepsList, stance):
+def findStanceOrientation(data, dataIDs, stepsList, stance):
     stanceList = {}
     columnListPosition = []
     columnListHeading = []
@@ -673,7 +672,7 @@ def findStanceOrientation(data, stepsList, stance):
     else:
         raise Exception('Not valid stance flag')
 
-    for dataID in stepsList.keys():
+    for dataID in dataIDs:
         currentData = data[dataID]
         stanceList[dataID] = stanceOrientation(currentData, stepsList[dataID], columnListPosition, columnListHeading)
 
@@ -681,7 +680,7 @@ def findStanceOrientation(data, stepsList, stance):
 
 def createPWHamilInput(data, dataIDs, template, obsID, stance):
     stepDict = findStanceSteps(data, dataIDs, stance)
-    stanceDict = findStanceOrientation(data, stepDict, stance)
+    stanceDict = findStanceOrientation(data, dataIDs, stepDict, stance)
     qList = deque()
     accelList = deque()
 
@@ -689,17 +688,26 @@ def createPWHamilInput(data, dataIDs, template, obsID, stance):
 
     for dataID in dataIDs:
         currentData = data[dataID]
-        kalman.dataEstimates(data, dataID, template, obsID)
+        data = kalman.dataEstimates(data, dataID, template, obsID)
 
     for dataID in dataIDs:
         cData = data[dataID]
         stepList = stepDict[dataID]
         stanceList = stanceDict[dataID]
         for cStep, cStance in zip(stepList, stanceList):
-            zBody = cData['Roach_x_KalmanDDX'][cStep[0]:cStep[1]+1] + 1.j * cData['Roach_y_KalmanDDX'][cStep[0]:cStep[1]+1]
-            zTransform = zBody * np.exp(1.j * -cStance[2])
-            cData['Roach_x_KalmanDDX'][cStep[0]:cStep[1]+1] = zTransform.real
-            cData['Roach_y_KalmanDDX'][cStep[0]:cStep[1]+1] = zTransform.imag
+            #Put body in footframe
+            zBody = cData['Roach_x'][cStep[0]:cStep[1]+1] + 1.j * cData['Roach_y'][cStep[0]:cStep[1]+1]
+            zTransform = zBody - (cStance[0] + 1.j * cStance[1])
+            zTransform = zBody * np.exp(1.j * cStance[2])
+            cData['Roach_x'][cStep[0]:cStep[1]+1] = zTransform.real
+            cData['Roach_y'][cStep[0]:cStep[1]+1] = zTransform.imag
+
+            #Put acceleration in footframe
+            zAccelBody = cData['Roach_x_KalmanDDX'][cStep[0]:cStep[1]+1] + 1.j * cData['Roach_y_KalmanDDX'][cStep[0]:cStep[1]+1]
+            zAccelTransform = zAccelBody * np.exp(1.j * -cStance[2])
+            cData['Roach_x_KalmanDDX'][cStep[0]:cStep[1]+1] = zAccelTransform.real
+            cData['Roach_y_KalmanDDX'][cStep[0]:cStep[1]+1] = zAccelTransform.imag
+
             for i in range(cStep[0], cStep[1]+1):
                 qList.append((cData.ix[i, 'Roach_x'], cData.ix[i, 'Roach_y'], cData.ix[i, 'Roach_theta']))
                 accelList.append((cData.ix[i, 'Roach_x_KalmanDDX'], cData.ix[i, 'Roach_y_KalmanDDX'], cData.ix[i, 'Roach_theta_KalmanDDX']))
@@ -713,7 +721,6 @@ def createPWHamilInput(data, dataIDs, template, obsID, stance):
             tarsusStepList.append(tarsusList)
 
     return qList, accelList, stepDict, stanceDict, tarsusStepList
-
 
 '''
 def findGaitStats(data, dataIDs):
@@ -738,14 +745,16 @@ if __name__ == "__main__":
     LINE_LENGTH = 8
 
     #step data
-    '''
+
     dataIDs = mo.treatments.query("Treatment == 'control'").index
     template = mc.jsonLoadTemplate('templateControl')
     mw.csvLoadData(dataIDs)
-    qList, accelList = createPWHamilInput(mw.data, [0], template, 'left')
-    '''
+    qListLeft, accelListLeft, stepDictLeft, stanceDictLeft, tarsusStepListLeft = createPWHamilInput(mw.data, [1], template, 0, 'left')
+    qListRight,  accelListRight, stepDictRight, stanceDictRight, tarsusStepListRight = createPWHamilInput(mw.data, [1], template, 0, 'right')
+
 
     #gait statistics
+    '''
     dataIDs = mo.treatments.query("Treatment == 'control'").index
     mw.csvLoadData(dataIDs)
     #findGaitStatsTrial(3, mw.data, dataIDs)
@@ -767,6 +776,7 @@ if __name__ == "__main__":
     dataIDs = mo.treatments.query("Treatment == 'inertia'").index
     mw.csvLoadData(dataIDs)
     findGaitStatsStepAlt(10, mw.data, dataIDs)
+    '''
 
     #something
     '''

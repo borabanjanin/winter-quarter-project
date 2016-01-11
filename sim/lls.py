@@ -15,6 +15,7 @@
 import numpy as np
 import pylab as plt
 import matplotlib as mpl
+import matplotlib.animation as anmtn
 
 import os
 import time
@@ -500,6 +501,253 @@ class LLS(hds.HDS):
     ax.set_xlabel('time (msec)');
 
     return axs
+
+  def zigzag(self, a=.2,b=.6,c=.2,s=.2,p=4,N=100,z0=None,z1=None):
+      """
+      z = zigzag(...)
+
+      Inputs:
+      (optional)
+      a - float - length before zigzag
+      b - float - length of zigzag
+      c - float - length after zigzag
+      s - float - size of zigzags
+      p - int - number of zigzags
+      N - int - number of samples
+      z0,z1 - complex - endpoints for zigzag; neither or both must be given
+
+      Outputs:
+      z - complex N vector - x + 1.j*y pairs along zigzag
+      x[0] = y[0] = 0; x[N-1] = a+b+c; y[N-1] = 0
+      """
+
+      x = np.linspace(0.,a+b+c,N); y = 0.*x
+      mb = np.round(N*a/(a+b+c)); Mb = np.round(N*(a+b)/(a+b+c))
+      y[mb:Mb] = s*( np.mod( np.linspace(0.,p-.01,Mb-mb), 1. ) - 0.5 )
+      z = x + 1.j*y
+      if z0 is not None and z1 is not None:
+          z_ = z
+          z = z0 + (z1-z0)*z
+
+      return z.real, z.imag
+
+  def animAccel(self, zeroIndex, o=None, dt=1e-3, fign=1, saveDir=None, label=None, accel=None):
+    """
+    .anim  animate trajectory
+
+    INPUTS:
+      o - Obs - trajectory to animate
+
+    OUTPUTS:
+    """
+    if o is None:
+      o = self.obs().resample(dt)
+
+      print 'hit'
+
+    t = np.hstack(o.t)
+    x = np.vstack(o.x)
+    y = np.vstack(o.y)
+    fx = np.vstack(o.fx)
+    fy = np.vstack(o.fy)
+    v = np.vstack(o.v)
+    delta = np.vstack(o.delta)
+    theta = np.vstack(o.theta) + np.pi/2
+    dtheta = np.vstack(o.dtheta)
+
+    te = np.hstack(o.t[::2])
+    xe = np.vstack(o.x[::2])
+    ye = np.vstack(o.y[::2])
+    thetae = np.vstack(o.theta[::2])
+    accel = np.hstack(accel)
+    z = np.array([v[-1],delta[-1],theta[-1],dtheta[-1]])
+
+    '''
+    def zigzag(a=.2,b=.6,c=.2,p=4,N=100):
+      x = np.linspace(0.,a+b+c,N); y = 0.*x
+      mb = np.round(N*a/(a+b+c)); Mb = np.round(N*(a+b)/(a+b+c))
+      y[mb:Mb] = np.mod(np.linspace(0.,p-.01,Mb-mb),1.)-0.5
+      return np.vstack((x,y))
+    '''
+    def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
+      theta = 2*np.pi/(N-1)*np.arange(N)
+      xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
+      ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
+      return xs, ys
+
+    r = 1.01
+
+    mx,Mx,dx = (x.min(),x.max(),x.max()-x.min())
+    my,My,dy = (y.min(),y.max(),y.max()-y.min())
+    dd = 2*r
+
+    fig = plt.figure(1,figsize=(5*(Mx-mx+2*dd)/(My-my+2*dd),5))
+    ax = plt.subplot2grid((10,10), (0, 0), colspan=10, rowspan=6)
+    ax2 = plt.subplot2grid((10,10), (6, 2), colspan=6, rowspan=4)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    '''
+    z1 = fx + 1.j * fy
+    z0 = x + 1.j * y
+    fxZ, fyZ = self.zigzag(a=.1, c=.2, s=.2, N=200, p=1, z0=z0, z1=z1)
+    Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
+    Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
+    Ecom.set_linewidth(4.0)
+    Lft,  = ax.plot(fxZ[0,:],fyZ[0,:],'g.-',lw=1.)
+    '''
+
+    Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
+    Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
+    Ecom.set_linewidth(4.0)
+    Lft,  = ax.plot([x[0],fx[0]],[y[0],fy[0]],'g.-',lw=4.)
+
+    ax.plot(fx, fy, 'rx')
+
+    ax.set_xlim((mx-dd,Mx+dd))
+    ax.set_ylim((my-dd,My+dd))
+
+    def update(k):
+        Lcom.set_xdata(x[k])
+        Lcom.set_ydata(y[k])
+        Lft.set_xdata([x[k],fx[k]])
+        Lft.set_ydata([y[k],fy[k]])
+        #Lft.set_xdata(fxZ[k,:])
+        #Lft.set_ydata(fyZ[k,:])
+
+        Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
+        Ecom.set_xdata(Ex)
+        Ecom.set_ydata(Ey)
+
+        G_CONVERSION = 0.00101971621
+        ax2.cla()
+        ax2.set_xlabel('ms', fontsize=22)
+        ax2.set_ylabel('$g$', fontsize=24)
+        ax2.set_xlim(0+zeroIndex,np.shape(accel)[0]*2+zeroIndex)
+        ax2.set_ylim(-0.5,2)
+        ax2.plot(np.linspace(0 + zeroIndex, np.shape(accel)[0]*2 + zeroIndex, np.shape(accel)[0]), accel*G_CONVERSION, 'k.')
+        ax2.plot((2*k+zeroIndex, 2*k+zeroIndex),(-5,5), 'r-', lw=4)
+        handles, labels = ax2.get_legend_handles_labels()
+
+        if saveDir != None:
+            fig.tight_layout()
+            plt.savefig(os.path.join(saveDir,str(label) + '%05d' % k)+'.png')
+
+    #m = anmtn.FuncAnimation(fig, update, frames=x.size, repeat=False , interval=1)
+
+    for i in range(x.size):
+        update(i)
+        plt.savefig(os.path.join(saveDir,str(label) + '%05d' % (i))+'.png')
+
+    #add stills at the end of animation
+    for i in range(30):
+        update(x.size-1)
+        plt.savefig(os.path.join(saveDir,str(label) + '%05d' % (i+x.size))+'.png')
+
+    update(0)
+    plt.savefig(os.path.join(saveDir,str(label) + '%05d' % (0))+'.png')
+    plt.show()
+
+
+  def anim(self, o=None, dt=1e-3, fign=1, saveDir=None, label=None):
+    """
+    .anim  animate trajectory
+
+    INPUTS:
+      o - Obs - trajectory to animate
+
+    OUTPUTS:
+    """
+    if o is None:
+      o = self.obs().resample(dt)
+
+    t = np.hstack(o.t)
+    x = np.vstack(o.x)
+    y = np.vstack(o.y)
+    fx = np.vstack(o.fx)
+    fy = np.vstack(o.fy)
+    v = np.vstack(o.v)
+    delta = np.vstack(o.delta)
+    theta = np.vstack(o.theta) + np.pi/2
+    dtheta = np.vstack(o.dtheta)
+
+    te = np.hstack(o.t[::2])
+    xe = np.vstack(o.x[::2])
+    ye = np.vstack(o.y[::2])
+    thetae = np.vstack(o.theta[::2])
+    z = np.array([v[-1],delta[-1],theta[-1],dtheta[-1]])
+
+    '''
+    def zigzag(a=.2,b=.6,c=.2,p=4,N=100):
+      x = np.linspace(0.,a+b+c,N); y = 0.*x
+      mb = np.round(N*a/(a+b+c)); Mb = np.round(N*(a+b)/(a+b+c))
+      y[mb:Mb] = np.mod(np.linspace(0.,p-.01,Mb-mb),1.)-0.5
+      return np.vstack((x,y))
+    '''
+
+    def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
+      theta = 2*np.pi/(N-1)*np.arange(N)
+      xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
+      ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
+      return xs, ys
+
+    r = 1.01
+
+    mx,Mx,dx = (x.min(),x.max(),x.max()-x.min())
+    my,My,dy = (y.min(),y.max(),y.max()-y.min())
+    dd = 2*r
+
+    fig = plt.figure(1,figsize=(5*(Mx-mx+2*dd)/(My-my+2*dd),5))
+    ax = plt.subplot2grid((10,10), (0, 0), colspan=10, rowspan=10)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    '''
+    z1 = fx + 1.j * fy
+    z0 = x + 1.j * y
+    fxZ, fyZ = self.zigzag(a=.1, c=.1, s=.1, N=500, p=1, z0=z0, z1=z1)
+    Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
+    Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
+    Ecom.set_linewidth(4.0)
+    Lft,  = ax.plot(fxZ[0,:],fyZ[0,:],'g.-',lw=0.01)
+    '''
+    Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
+    Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
+    Ecom.set_linewidth(4.0)
+    Lft,  = ax.plot(fx[0,:],fy[0,:],'g.-',lw=5.0)
+
+    ax.set_xlim((mx-dd,Mx+dd))
+    ax.set_ylim((my-dd,My+dd))
+
+    ax.plot(fx, fy, 'rx')
+
+    def update(k):
+        '''
+        Lcom.set_xdata(x[k])
+        Lcom.set_ydata(y[k])
+        Lft.set_xdata(fx[k,:])
+        Lft.set_ydata(fy[k,:])
+        Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
+        Ecom.set_xdata(Ex)
+        Ecom.set_ydata(Ey)
+        '''
+        Lcom.set_xdata(x[k])
+        Lcom.set_ydata(y[k])
+        Lft.set_xdata([x[k],fx[k]])
+        Lft.set_ydata([y[k],fy[k]])
+        Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
+        Ecom.set_xdata(Ex)
+        Ecom.set_ydata(Ey)
+
+        if saveDir != None:
+            #fig.tight_layout()
+            plt.savefig(os.path.join(saveDir,str(label)) + '%05d' % k+'.png', bbox_inches='tight')
+
+    m = anmtn.FuncAnimation(fig, update, frames=x.size, repeat=False , interval=1)
+    plt.show()
+
 
   def extrinsic(self, z, q, x=0., y=0., theta=np.pi/2.):
     """
