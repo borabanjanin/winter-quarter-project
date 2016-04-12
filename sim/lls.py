@@ -588,38 +588,32 @@ class LLS(hds.HDS):
     ax.set_xticks([])
     ax.set_yticks([])
 
-    '''
     z1 = fx + 1.j * fy
     z0 = x + 1.j * y
-    fxZ, fyZ = self.zigzag(a=.1, c=.2, s=.2, N=200, p=1, z0=z0, z1=z1)
+    #fxZ, fyZ = self.zigzag(a=.1, c=.1, s=.1, N=500, p=1, z0=z0, z1=z1)
+    fZ = self.zigzag(a=.2,b=.6,c=.2,s=.2,p=4,N=100,z0=z0,z1=z1)
+    #ax.plot(fZ[0][0],fZ[0][1],'g.-',lw=0.01)
     Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
     Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
     Ecom.set_linewidth(4.0)
-    Lft,  = ax.plot(fxZ[0,:],fyZ[0,:],'g.-',lw=1.)
-    '''
-
-    Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
-    Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
-    Ecom.set_linewidth(4.0)
-    Lft,  = ax.plot([x[0],fx[0]],[y[0],fy[0]],'g.-',lw=4.)
+    Lft,  = ax.plot(fZ[0][0],fZ[1][0]) #,'g.-',lw=0.01)
 
     ax.plot(fx, fy, 'rx')
 
     ax.set_xlim((mx-dd,Mx+dd))
     ax.set_ylim((my-dd,My+dd))
 
-    def update(k):
+    def update(m, k):
         Lcom.set_xdata(x[k])
         Lcom.set_ydata(y[k])
-        Lft.set_xdata([x[k],fx[k]])
-        Lft.set_ydata([y[k],fy[k]])
-        #Lft.set_xdata(fxZ[k,:])
-        #Lft.set_ydata(fyZ[k,:])
-
+        Lft.set_xdata(fZ[0][k])
+        Lft.set_ydata(fZ[1][k])
         Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
+        #plt.clf()
+        #plt.plot(Ex, Ey)
+        #plt.show()
         Ecom.set_xdata(Ex)
         Ecom.set_ydata(Ey)
-
         G_CONVERSION = 0.00101971621
         ax2.cla()
         ax2.set_xlabel('ms', fontsize=22)
@@ -632,36 +626,34 @@ class LLS(hds.HDS):
 
         if saveDir != None:
             fig.tight_layout()
-            plt.savefig(os.path.join(saveDir,str(label) + '%05d' % k)+'.png')
+            plt.savefig(os.path.join(saveDir,str(label) + '%05d' % m)+'.png')
 
-    #m = anmtn.FuncAnimation(fig, update, frames=x.size, repeat=False , interval=1)
-
-    for i in range(x.size):
-        update(i)
-        plt.savefig(os.path.join(saveDir,str(label) + '%05d' % (i))+'.png')
+    for i in range(x.size): #enumerate(range(x.size)[1::10]):
+    #for i in [5]:
+        update(i,i)
 
     #add stills at the end of animation
     for i in range(30):
-        update(x.size-1)
+        #update(x.size-1)
         plt.savefig(os.path.join(saveDir,str(label) + '%05d' % (i+x.size))+'.png')
-
+    '''
     update(0)
     plt.savefig(os.path.join(saveDir,str(label) + '%05d' % (0))+'.png')
     plt.show()
-
+    '''
 
   def anim(self, o=None, dt=1e-3, fign=1, saveDir=None, label=None):
     """
-    .anim  animate trajectory
+      .anim  animate trajectory
 
     INPUTS:
       o - Obs - trajectory to animate
 
     OUTPUTS:
     """
+
     if o is None:
       o = self.obs().resample(dt)
-
     t = np.hstack(o.t)
     x = np.vstack(o.x)
     y = np.vstack(o.y)
@@ -678,19 +670,11 @@ class LLS(hds.HDS):
     thetae = np.vstack(o.theta[::2])
     z = np.array([v[-1],delta[-1],theta[-1],dtheta[-1]])
 
-    '''
-    def zigzag(a=.2,b=.6,c=.2,p=4,N=100):
-      x = np.linspace(0.,a+b+c,N); y = 0.*x
-      mb = np.round(N*a/(a+b+c)); Mb = np.round(N*(a+b)/(a+b+c))
-      y[mb:Mb] = np.mod(np.linspace(0.,p-.01,Mb-mb),1.)-0.5
-      return np.vstack((x,y))
-    '''
-
     def Ellipse((x,y), (rx, ry), N=20, t=0, **kwargs):
-      theta = 2*np.pi/(N-1)*np.arange(N)
-      xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
-      ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
-      return xs, ys
+        theta = 2*np.pi/(N-1)*np.arange(N)
+        xs = x + rx*np.cos(theta)*np.cos(-t) - ry*np.sin(theta)*np.sin(-t)
+        ys = y + rx*np.cos(theta)*np.sin(-t) + ry*np.sin(theta)*np.cos(-t)
+        return xs, ys
 
     r = 1.01
 
@@ -704,50 +688,37 @@ class LLS(hds.HDS):
     ax.set_xticks([])
     ax.set_yticks([])
 
-    '''
     z1 = fx + 1.j * fy
     z0 = x + 1.j * y
-    fxZ, fyZ = self.zigzag(a=.1, c=.1, s=.1, N=500, p=1, z0=z0, z1=z1)
+    fZ = self.zigzag(a=.2,b=.6,c=.2,s=.2,p=4,N=100,z0=z0,z1=z1)
     Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
     Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
     Ecom.set_linewidth(4.0)
-    Lft,  = ax.plot(fxZ[0,:],fyZ[0,:],'g.-',lw=0.01)
-    '''
-    Lcom, = ax.plot(x[0], y[0], 'b.', ms=10.)
-    Ecom, = ax.plot(*Ellipse((x[0],y[0]), (r, 0.5*r), t=theta[0]))
-    Ecom.set_linewidth(4.0)
-    Lft,  = ax.plot(fx[0,:],fy[0,:],'g.-',lw=5.0)
+    Lft,  = ax.plot(fZ[0][0],fZ[1][0]) #,'g.-',lw=0.01)
+
 
     ax.set_xlim((mx-dd,Mx+dd))
     ax.set_ylim((my-dd,My+dd))
 
     ax.plot(fx, fy, 'rx')
 
-    def update(k):
-        '''
+    def update(m, k):
         Lcom.set_xdata(x[k])
         Lcom.set_ydata(y[k])
-        Lft.set_xdata(fx[k,:])
-        Lft.set_ydata(fy[k,:])
-        Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
-        Ecom.set_xdata(Ex)
-        Ecom.set_ydata(Ey)
-        '''
-        Lcom.set_xdata(x[k])
-        Lcom.set_ydata(y[k])
-        Lft.set_xdata([x[k],fx[k]])
-        Lft.set_ydata([y[k],fy[k]])
+        Lft.set_xdata(fZ[0][k])
+        Lft.set_ydata(fZ[1][k])
         Ex,Ey = Ellipse((x[k],y[k]), (0.5*r, r), t=theta[k])
         Ecom.set_xdata(Ex)
         Ecom.set_ydata(Ey)
 
         if saveDir != None:
             #fig.tight_layout()
-            plt.savefig(os.path.join(saveDir,str(label)) + '%05d' % k+'.png', bbox_inches='tight')
+            plt.savefig(os.path.join(saveDir,str(label)) + '%05d' % m+'.png', bbox_inches='tight')
 
-    m = anmtn.FuncAnimation(fig, update, frames=x.size, repeat=False , interval=1)
-    plt.show()
-
+    for i,j in enumerate(range(x.size)[1::10]):
+        update(i,j)
+    #m = anmtn.FuncAnimation(fig, update, frames=x.size, repeat=False , interval=1)
+    #plt.show()
 
   def extrinsic(self, z, q, x=0., y=0., theta=np.pi/2.):
     """

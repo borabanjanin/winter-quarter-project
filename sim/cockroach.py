@@ -253,10 +253,10 @@ def potential3D(figNum, plotTitle, f, theta):
     ax.set_xlim((-5, 5))
     plt.xlabel('x (cm)', fontsize=16)
     plt.ylabel('y (cm)', fontsize=16)
-    plt.title('Linear Acceleration Magnitude, Zero Angle', fontsize=18)
+    #plt.title('Linear Acceleration Magnitude, Zero Angle', fontsize=25)
     #ax.set_zlabel('y (cm)')
 
-    fig.colorbar(surf, shrink=0.5, aspect=25)
+    #fig.colorbar(surf, shrink=0.5, aspect=25)
     plt.savefig('2016SICB/plots/3DPotential-'+plotTitle+'.png', bbox_inches='tight', dpi=200)
 
 def flipFunction(lList, pwHamilResults, qRight):
@@ -303,6 +303,7 @@ if __name__ == "__main__":
     p = np.asarray([2.8, 2.5, 2.8, -2.5, 0.0, 0.0])
     t = np.asarray([0.0, 0.299, 1.0e-5, 0.05])
     test = Cockroach(q, p, t, [f_l,f_r])
+    '''
     test.sim()
 
     y = test.Y
@@ -356,4 +357,3 @@ if __name__ == "__main__":
     vectorField(4, 'leftFoot', f_l, theta)
     potential3D(5, 'leftFoot', f_l, theta)
     plt.show()
-    '''

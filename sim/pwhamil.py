@@ -179,6 +179,69 @@ def runPWHamil(data, dataIDs, template, stanceInfoLabel, label):
     pickle.dump(results, open(os.path.join(os.getcwd(), 'PWHamil',label+'.p'), 'wb'))
     return results
 
+def estimatesTransform(estimatesLabel):
+    estimatesTable = loadEstimatesTable(estimatesLabel)
+
+    estimatesTable['TarsusBodyAvg1_x'] = (estimatesTable['TarsusBody1_x_KalmanX_Mean']  \
+    + estimatesTable['TarsusBody3_x_KalmanX_Mean'] + estimatesTable['TarsusBody5_x_KalmanX_Mean'])/3.0
+    estimatesTable['TarsusBodyAvg1_y'] = (estimatesTable['TarsusBody1_y_KalmanX_Mean'] \
+    + estimatesTable['TarsusBody3_y_KalmanX_Mean'] + estimatesTable['TarsusBody5_y_KalmanX_Mean'])/3.0
+    estimatesTable['TarsusBodyAvg2_x'] = (estimatesTable['TarsusBody2_x_KalmanX_Mean'] \
+    + estimatesTable['TarsusBody4_x_KalmanX_Mean'] + estimatesTable['TarsusBody6_x_KalmanX_Mean'])/3.0
+    estimatesTable['TarsusBodyAvg2_y'] = (estimatesTable['TarsusBody2_y_KalmanX_Mean'] \
+    + estimatesTable['TarsusBody4_y_KalmanX_Mean'] + estimatesTable['TarsusBody6_y_KalmanX_Mean'])/3.0
+
+    #Finding foot frame origin
+    zBodyLeft = estimatesTable['Roach_x_KalmanX_Mean'][0:32] + 1.j * estimatesTable['Roach_y_KalmanX_Mean'][0:32]
+    zFootAvgLeft = estimatesTable['TarsusBodyAvg1_x'][0:32] + 1.j * estimatesTable['TarsusBodyAvg1_y'][0:32]
+    zFootFrameOriginLeft = zBodyLeft + zFootAvgLeft * np.exp(list(1.j * estimatesTable['Roach_theta_KalmanX_Mean'][0:32]))
+    xPosAvgLeft = pd.Series(map(lambda x: x.real, zFootFrameOriginLeft)).mean()
+    yPosAvgLeft = pd.Series(map(lambda x: x.imag, zFootFrameOriginLeft)).mean()
+
+    zBodyRight = estimatesTable['Roach_x_KalmanX_Mean'][32:64] + 1.j * estimatesTable['Roach_y_KalmanX_Mean'][32:64]
+    zFootAvgRight = estimatesTable['TarsusBodyAvg2_x'][32:64] + 1.j * estimatesTable['TarsusBodyAvg2_y'][32:64]
+    zFootFrameOriginRight = zBodyRight + zFootAvgRight * np.exp(list(1.j * estimatesTable['Roach_theta_KalmanX_Mean'][32:64]))
+    xPosAvgRight = pd.Series(map(lambda x: x.real, zFootFrameOriginRight)).mean()
+    yPosAvgRight = pd.Series(map(lambda x: x.imag, zFootFrameOriginRight)).mean()
+
+    #Finding foot frame orientation
+    xFootLeft = np.hstack((estimatesTable['TarsusBody1_x_KalmanX_Mean'][0:32],estimatesTable['TarsusBody3_x_KalmanX_Mean'][0:32],estimatesTable['TarsusBody5_x_KalmanX_Mean'][0:32]))
+    yFootLeft = np.hstack((estimatesTable['TarsusBody1_y_KalmanX_Mean'][0:32],estimatesTable['TarsusBody3_y_KalmanX_Mean'][0:32],estimatesTable['TarsusBody5_y_KalmanX_Mean'][0:32]))
+    thetaFootLeft = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][0:32],estimatesTable['Roach_theta_KalmanX_Mean'][0:32],estimatesTable['Roach_theta_KalmanX_Mean'][0:32]))
+    zFootLeft = xFootLeft + 1.j * yFootLeft
+    zFootLeftTranform = np.hstack((zBodyLeft, zBodyLeft, zBodyLeft)) + zFootLeft * np.exp(list(1.j * thetaFootLeft))
+    xyF = np.matrix([map(lambda x: x.real, zFootLeftTranform), map(lambda x: x.imag, zFootLeftTranform)])
+    U, s, V = np.linalg.svd(xyF)
+    thetaPosAvgLeft = np.arctan2(U.item(1,0), U.item(0,0))
+    if abs(thetaPosAvgLeft) > np.pi/2:
+        thetaPosAvgLeft = np.arctan2(-1.0 * U.item(1,0), -1.0 * U.item(0,0))
+
+    xFootRight = np.hstack((estimatesTable['TarsusBody2_x_KalmanX_Mean'][32:64],estimatesTable['TarsusBody4_x_KalmanX_Mean'][32:64],estimatesTable['TarsusBody6_x_KalmanX_Mean'][32:64]))
+    yFootRight = np.hstack((estimatesTable['TarsusBody2_y_KalmanX_Mean'][32:64],estimatesTable['TarsusBody4_y_KalmanX_Mean'][32:64],estimatesTable['TarsusBody6_y_KalmanX_Mean'][32:64]))
+    thetaFootRight = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][32:64],estimatesTable['Roach_theta_KalmanX_Mean'][32:64],estimatesTable['Roach_theta_KalmanX_Mean'][32:64]))
+    zFootRight = xFootRight + 1.j * yFootRight
+    zFootRightTranform = np.hstack((zBodyRight, zBodyRight, zBodyRight)) + zFootRight * np.exp(list(1.j * thetaFootRight))
+    xyF = np.matrix([map(lambda x: x.real, zFootRightTranform), map(lambda x: x.imag, zFootRightTranform)])
+    U, s, V = np.linalg.svd(xyF)
+    thetaPosAvgRight = np.arctan2(U.item(1,0), U.item(0,0))
+    if abs(thetaPosAvgRight) > np.pi/2:
+        thetaPosAvgRight = np.arctan2(-1.0 * U.item(1,0), -1.0 * U.item(0,0))
+
+    #Putting body position and acceleration into footframe
+    zBodyLeftTransform = (zBodyLeft - (xPosAvgLeft + 1.j * yPosAvgLeft)) * np.exp(1.j * thetaPosAvgLeft)
+    zBodyRightTransform = (zBodyRight - (xPosAvgRight + 1.j * yPosAvgRight)) * np.exp(1.j * thetaPosAvgRight)
+    zBodyTransform = np.hstack((zBodyLeftTransform, zBodyRightTransform))
+    estimatesTable['Roach_x_KalmanX_Mean_C'] = map(lambda x: x.real, zBodyTransform)
+    estimatesTable['Roach_y_KalmanX_Mean_C'] = map(lambda x: x.imag, zBodyTransform)
+    zAccelLeftTransform = (estimatesTable['Roach_x_KalmanDDX_Mean'][0:32] + 1.j * estimatesTable['Roach_y_KalmanDDX_Mean'][0:32]) * np.exp(1.j * thetaPosAvgLeft)
+    zAccelRightTransform = (estimatesTable['Roach_x_KalmanDDX_Mean'][32:64] + 1.j * estimatesTable['Roach_y_KalmanDDX_Mean'][32:64]) * np.exp(1.j * thetaPosAvgRight)
+    zAccelBodyTransform = np.hstack((zAccelLeftTransform, zAccelRightTransform))
+    estimatesTable['Roach_x_KalmanDDX_Mean_C'] = map(lambda x: x.real, zAccelBodyTransform)
+    estimatesTable['Roach_y_KalmanDDX_Mean_C'] = map(lambda x: x.imag, zAccelBodyTransform)
+    #thetaFootFrame = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][0:32] - thetaPosAvgLeft, estimatesTable['Roach_theta_KalmanX_Mean'][32:64] - thetaPosAvgRight))
+    estimatesTable['Roach_theta_KalmanX_Mean_C'] = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][0:32] - thetaPosAvgLeft, estimatesTable['Roach_theta_KalmanX_Mean'][32:64] - thetaPosAvgRight))
+    return estimatesTable
+
 def estimatesTableStanceInfo(estimatesTable, label):
     #estimatesTable = loadEstimatesTable(estimatesLabel)
     results = {}
@@ -263,7 +326,6 @@ def estimatesTransform(estimatesLabel):
     estimatesTable['Roach_y_KalmanDDX_Mean_C'] = map(lambda x: x.imag, zAccelBodyTransform)
     #thetaFootFrame = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][0:32] - thetaPosAvgLeft, estimatesTable['Roach_theta_KalmanX_Mean'][32:64] - thetaPosAvgRight))
     estimatesTable['Roach_theta_KalmanX_Mean_C'] = np.hstack((estimatesTable['Roach_theta_KalmanX_Mean'][0:32] - thetaPosAvgLeft, estimatesTable['Roach_theta_KalmanX_Mean'][32:64] - thetaPosAvgRight))
-
     return estimatesTable
 
 def runPWHamilEstimates(stanceLabel, label):
@@ -437,7 +499,6 @@ def generatePWHamilTable(estimatesTable, pwHamilLabel):
     pwHamilTable['DDTheta'] = np.hstack((accelsLeft[:,2], accelsRight[:,2]))
     return pwHamilTable
 
-
 def plotPWHamil(label, color, pwHamilTable, estimatesLabel):
     estimatesTable = loadEstimatesTable(estimatesLabel)
     (posX, _, accelX) = kalman.columnTableX('Roach_x')
@@ -593,7 +654,10 @@ if __name__ == "__main__":
     #fitTest(40)
 
     #Run PWHamil on Estimates
+    #mw.csvLoadData([0])
+    runSpringLegEstimates('control-estimates', 'control-estimates')
 
+    '''
     estimatesTable = estimatesTransform('control-estimates')
     results = estimatesTableStanceInfo(estimatesTable, 'control-estimates')
     runPWHamilEstimates('control-estimates', 'control-estimates')
@@ -611,6 +675,7 @@ if __name__ == "__main__":
     runPWHamilEstimates('inertia-estimates', 'inertia-estimates')
     pwHamilTable = estimatesGeneratePWHamilTable(estimatesTable, 'inertia-estimates')
     #plotPWHamil('011218-inertia-estimates', 'g', pwHamilTable, 'inertia-estimates')
+    '''
 
     '''
     results, estimatesTable = estimatesTableStanceInfo('mass-raw', 'mass-raw')

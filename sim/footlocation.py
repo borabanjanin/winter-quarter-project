@@ -14,6 +14,9 @@ from collections import deque
 import copy
 from util import num
 import kalman
+from itertools import chain
+import tv as tv
+import chartrand as chartrand
 
 def calcForces(data, template):
     xDiff = np.diff(np.diff(data['Roach_x']))
@@ -130,7 +133,6 @@ def plotFootData(dataID, template, tracker):
         ax.set_yticklabels(ax.get_yticks())
         plt.tight_layout()
         plt.savefig('Footlocation/' + str(dataID) + '-' + str(segment) + '.png')
-
 
         plt.figure(99, figsize=(12,8))
         plt.clf()
@@ -300,8 +302,8 @@ def findFootLocationData(data, dataIDs):
 
 def tarsusTouchDown(data, column):
     BUFFER = 18
-    tm = num.localmin(BUFFER, np.asarray(data[column][0:284]))
-    tM = num.localmin(BUFFER, -np.asarray(data[column][0:284]))
+    tm = num.localmin(BUFFER, np.asarray(data[column][0:284+BUFFER]))
+    tM = num.localmin(BUFFER, -np.asarray(data[column][0:284+BUFFER]))
     t = np.zeros(800)
     m = list(tm.nonzero()[0])
     M = list(tM.nonzero()[0])
@@ -314,13 +316,11 @@ def tarsusTouchDown(data, column):
     indicator = np.nan
 
     if (m[0] < M[0] and len(M) > len(m)) or len(M) > len(m)+1:
-        print 'undefined tarsus'
+        print 'undefined tarsus: too many maxima'
         return t, 0, 799
     if (M[0] < m[0] and len(m) > len(M)) or len(m) > len(M)+1:
-        print 'undefined tarsus'
+        print 'undefined tarsus: too many minima'
         return t, 0, 799
-
-
 
     for i in range(minIndex, maxIndex + 1):
         if m[0] - i < M[0] - i:
@@ -337,9 +337,9 @@ def tarsusTouchDown(data, column):
                 if indicator == 1:
                     raise Exception('Two consecutive maximums')
                 indicator = 1
-    return t, minIndex, maxIndex
+    return t, minIndex, min(maxIndex, 283)
 
-def tripodStance(data):
+def tripodStance(data, tarsusInfo = None):
     data['c0'] = np.nan
     data['c1'] = np.nan
     t1, mI1, MI1 = tarsusTouchDown(data, 'TarsusBody1_x')
@@ -361,17 +361,14 @@ def tripodStance(data):
         elif t2[i] == -1 and t4[i] == -1 and t6[i] == -1:
             data.ix[i, 'c1'] = 0
 
-    #testing code
-    '''
-    plt.figure(1); plt.clf();
-    plt.plot(t1, 'b.')
-    plt.plot(t1m.nonzero()[0],-1*np.ones(np.shape(t1m.nonzero()[0])),'go')
-    plt.plot(t1M.nonzero()[0],np.ones(np.shape(t1M.nonzero()[0])),'ro')
-    axes = plt.gca()
-    axes.set_xlim([100,550])
-    axes.set_ylim([-1.5,1.5])
-    plt.show()
-    '''
+    if tarsusInfo == True:
+        data['t1'] = t1
+        data['t2'] = t2
+        data['t3'] = t3
+        data['t4'] = t4
+        data['t5'] = t5
+        data['t6'] = t6
+
     return data
 
 def averageTripodStance(data):
@@ -468,7 +465,6 @@ def findGaitCounts(data, beginIndex, endIndex):
             aerialStance += 1
 
     return (leftStance, rightStance, bothStance, aerialStance)
-
 
 def bootstrapGaitCounts(samples, countsList):
     meansList = []
@@ -722,16 +718,237 @@ def createPWHamilInput(data, dataIDs, template, obsID, stance):
 
     return qList, accelList, stepDict, stanceDict, tarsusStepList
 
-'''
-def findGaitStats(data, dataIDs):
+def findStepTransition(indicatorList):
+    transitionList = deque()
+    indicatorList = indicatorList.dropna()
+    if len(indicatorList) == 0:
+        return []
+    indicator = indicatorList[indicatorList.index[0]]
+    for i in indicatorList.index[1:]:
+        if indicator != indicatorList[i]:
+            transitionList.append(i-1)
+            indicator = indicatorList[i]
+    return list(transitionList)
 
-    for data in dataIDs:
-        currentData = data[dataID]
-        currentData = tripodStance(currentData)
-        (leftStance, rightStance, bothStance, aerialStance) = findGaitCountsTrial(data)
-    ts = float(leftStance + rightStance + bothStance + aerialStance)
-    return (leftStance/ts, rightStance/ts, bothStance/ts, aerialStance/ts, ts)
-'''
+def feetLocations(currentData, indexes, feetIDs):
+    '''
+        Output - Array (indexes, len(feetIDs * 2))
+    '''
+    feetArray = np.zeros((len(indexes), 2*len(feetIDs)))
+    for j, feetID in enumerate(feetIDs):
+        feetLabelX = 'TarsusBody' + str(feetID) + '_x'
+        feetLabelY = 'TarsusBody' + str(feetID) + '_y'
+        for i, index in enumerate(indexes):
+            feetArray[i,j*2] = currentData.ix[index, feetLabelX]
+            feetArray[i,j*2+1] = currentData.ix[index, feetLabelY]
+    return feetArray
+
+def findStepTransitions(data, dataIDs):
+    leftTransitionsIndex = {}
+    rightTransitionsIndex = {}
+    leftTransitionsFeetLocation = {}
+    rightTransitionsFeetLocation = {}
+    for dataID in dataIDs:
+        tripodStance(data[dataID])
+        leftTransitionsIndex[dataID] = findStepTransition(data[dataID]['c0'])
+        rightTransitionsIndex[dataID] = findStepTransition(data[dataID]['c1'])
+        leftTransitionsFeetLocation[dataID] = feetLocations(data[dataID], leftTransitionsIndex[dataID], [1, 2, 3])
+        rightTransitionsFeetLocation[dataID] = feetLocations(data[dataID], rightTransitionsIndex[dataID], [6, 5, 4])
+
+    leftTransitions = np.vstack(leftTransitionsFeetLocation.values())
+    rightTransitions = np.vstack(rightTransitionsFeetLocation.values())
+
+    return leftTransitions, rightTransitions
+
+def tarsusInCartFrame(data, dataIDs):
+    #Leg1 = {}
+    #Leg2 = {}
+    #Leg3 = {}
+    #Leg4 = {}
+    #Leg5 = {}
+    #Leg6 = {}
+
+    for dataID in dataIDs:
+        cData = data[dataID]
+        body = cData['Roach_x'] + 1.j * cData['Roach_y']
+        leg1 = cData['TarsusBody1_x'] + 1.j * cData['TarsusBody1_y']
+        leg2 = cData['TarsusBody2_x'] + 1.j * cData['TarsusBody2_y']
+        leg3 = cData['TarsusBody3_x'] + 1.j * cData['TarsusBody3_y']
+        leg4 = cData['TarsusBody4_x'] + 1.j * cData['TarsusBody4_y']
+        leg5 = cData['TarsusBody5_x'] + 1.j * cData['TarsusBody5_y']
+        leg6 = cData['TarsusBody6_x'] + 1.j * cData['TarsusBody6_y']
+        #leg1 -= np.mean(leg1[0:284])
+        #leg2 -= np.mean(leg2[0:284])
+        #leg3 -= np.mean(leg3[0:284])
+        #leg4 -= np.mean(leg4[0:284])
+        #leg5 -= np.mean(leg5[0:284])
+        #leg6 -= np.mean(leg6[0:284])
+        rot = np.exp(1.j * cData['Roach_theta'])
+        cData['TarsusBody1_x'] = (body + leg1 * rot).real
+        cData['TarsusBody2_x'] = (body + leg2 * rot).real
+        cData['TarsusBody3_x'] = (body + leg3 * rot).real
+        cData['TarsusBody4_x'] = (body + leg4 * rot).real
+        cData['TarsusBody5_x'] = (body + leg5 * rot).real
+        cData['TarsusBody6_x'] = (body + leg6 * rot).real
+        cData['TarsusBody1_y'] = (body + leg1 * rot).imag
+        cData['TarsusBody2_y'] = (body + leg2 * rot).imag
+        cData['TarsusBody3_y'] = (body + leg3 * rot).imag
+        cData['TarsusBody4_y'] = (body + leg4 * rot).imag
+        cData['TarsusBody5_y'] = (body + leg5 * rot).imag
+        cData['TarsusBody6_y'] = (body + leg6 * rot).imag
+
+        '''
+        iterations = 1000
+        alpha = 1e-3
+        dx_1 = tv.diff(pd.Series(np.array(Leg1.values())[0,:284]).dropna(),iterations,alpha,dx=.002,plotflag=False,diagflag=False)
+        dx_3 = tv.diff(pd.Series(np.array(Leg3.values())[0,:284]).dropna(),iterations,alpha,dx=.002,plotflag=False,diagflag=False)
+        dx_5 = tv.diff(pd.Series(np.array(Leg5.values())[0,:284]).dropna(),iterations,alpha,dx=.002,plotflag=False,diagflag=False)
+
+        dx_2 = tv.diff(pd.Series(np.array(Leg2.values())[0,:284]).dropna(),iterations,alpha,dx=.002,plotflag=False,diagflag=False)
+        dx_4 = tv.diff(pd.Series(np.array(Leg4.values())[0,:284]).dropna(),iterations,alpha,dx=.002,plotflag=False,diagflag=False)
+        dx_6 = tv.diff(pd.Series(np.array(Leg6.values())[0,:284]).dropna(),iterations,alpha,dx=.002,plotflag=False,diagflag=False)
+
+        plt.plot(dx_1, '.-')
+        plt.plot(dx_3, '.-')
+        plt.plot(dx_5, '.-')
+        plt.show()
+        #plt.plot((dx_1 + dx_3 + dx_5)/3., '.')
+        #plt.show()
+
+        plt.plot(dx_2, '.-')
+        plt.plot(dx_4, '.-')
+        plt.plot(dx_6, '.-')
+        plt.show()
+        #plt.plot((dx_2 + dx_4 + dx_6)/3., '.')
+        #plt.show()
+        '''
+    return data
+
+def chartrandStanceIndicator(label, threshold):
+    trials = chartrand.loadTrialEstimates(label)
+    si = {}
+    for trialID in trials.keys():
+        trial = trials[trialID]
+        _,d = np.shape(trial)
+        si[trialID] = trial[1,:] > threshold
+    return si, trials
+
+def chartrandSegmentSteps(stanceIndicators, trials, removeEnds = False):
+    tSegments = {}
+    fSegments = {}
+    for trialID in trials.keys():
+        #trial = trials[trialID][1,:]
+        trial = trials[trialID].T
+        si = stanceIndicators[trialID]
+        currentIndicator = si[0]
+        tSequence = deque()
+        fSequence = deque()
+        currentSequence = deque()
+        for i in range(np.shape(trial)[0]):
+            if si[i] == currentIndicator:
+                currentSequence.append(trial[i])
+            elif si[i] != currentIndicator:
+                if currentIndicator == True:
+                    tSequence.append(currentSequence)
+                elif currentIndicator == False:
+                    fSequence.append(currentSequence)
+                currentSequence = deque([trial[i]])
+                currentIndicator = si[i]
+        if currentIndicator == True:
+            tSequence.append(currentSequence)
+        elif currentIndicator == False:
+            fSequence.append(currentSequence)
+        if removeEnds == True:
+            if si[0] == True:
+                tSequence.popleft()
+            else:
+                fSequence.popleft()
+            if si[-1] == True:
+                tSequence.pop()
+            else:
+                fSequence.pop()
+        tSegments[trialID] = tSequence
+        fSegments[trialID] = fSequence
+    return tSegments, fSegments
+
+def stepDuration(segments, dt=.002):
+    durations = deque()
+    for segmentID in segments.keys():
+        for step in segments[segmentID]:
+            durations.append(len(np.shape(np.array(step).T[1,:])) * dt)
+    return durations
+
+def stepLength(segments):
+    lengths = deque()
+    for segmentID in segments.keys():
+        for step in segments[segmentID]:
+            lengths.append(np.array(step).T[0,-1] - np.array(step).T[0,0])
+    return lengths
+
+def chartrandSteps(label, dt=.002, threshold=0.0):
+    s, t = chartrandStanceIndicator(label, threshold)
+    ti,fi = chartrandSegmentSteps(s, t, True)
+    swingDur = np.array(stepDuration(ti))
+    stepDur = np.array(stepDuration(fi))
+    swingLen = np.array(stepLength(ti))
+    stepLen = np.array(stepLength(fi))
+    return stepDur, swingDur, stepLen, swingLen
+
+def chartrandStats(label):
+    lt = label.replace('all', 'control')
+    stepDur1C, swingDur1C, stepLen1C, swingLen1C = chartrandSteps(lt + '-TarsusBody1_x')
+    stepDur2C, swingDur2C, stepLen2C, swingLen2C = chartrandSteps(lt + '-TarsusBody2_x')
+    stepDur3C, swingDur3C, stepLen3C, swingLen3C = chartrandSteps(lt + '-TarsusBody3_x')
+    stepDur4C, swingDur4C, stepLen4C, swingLen4C = chartrandSteps(lt + '-TarsusBody4_x')
+    stepDur5C, swingDur5C, stepLen5C, swingLen5C = chartrandSteps(lt + '-TarsusBody5_x')
+    stepDur6C, swingDur6C, stepLen6C, swingLen6C = chartrandSteps(lt + '-TarsusBody6_x')
+    lt = label.replace('all', 'mass')
+    stepDur1M, swingDur1M, stepLen1M, swingLen1M = chartrandSteps(lt + '-TarsusBody1_x')
+    stepDur2M, swingDur2M, stepLen2M, swingLen2M = chartrandSteps(lt + '-TarsusBody2_x')
+    stepDur3M, swingDur3M, stepLen3M, swingLen3M = chartrandSteps(lt + '-TarsusBody3_x')
+    stepDur4M, swingDur4M, stepLen4M, swingLen4M = chartrandSteps(lt + '-TarsusBody4_x')
+    stepDur5M, swingDur5M, stepLen5M, swingLen5M = chartrandSteps(lt + '-TarsusBody5_x')
+    stepDur6M, swingDur6M, stepLen6M, swingLen6M = chartrandSteps(lt + '-TarsusBody6_x')
+    lt = label.replace('all', 'inertia')
+    stepDur1I, swingDur1I, stepLen1I, swingLen1I = chartrandSteps(lt + '-TarsusBody1_x')
+    stepDur2I, swingDur2I, stepLen2I, swingLen2I = chartrandSteps(lt + '-TarsusBody2_x')
+    stepDur3I, swingDur3I, stepLen3I, swingLen3I = chartrandSteps(lt + '-TarsusBody3_x')
+    stepDur4I, swingDur4I, stepLen4I, swingLen4I = chartrandSteps(lt + '-TarsusBody4_x')
+    stepDur5I, swingDur5I, stepLen5I, swingLen5I = chartrandSteps(lt + '-TarsusBody5_x')
+    stepDur6I, swingDur6I, stepLen6I, swingLen6I = chartrandSteps(lt + '-TarsusBody6_x')
+
+    #Historgram Durations
+    '''
+    for i in range(1,7):
+        plt.hist(eval('stepDur' + str(i) + 'C'), bins=20, range=[0.0, .05], facecolor='blue', alpha=0.5)
+        plt.hist(eval('stepDur' + str(i) + 'M'), bins=20, range=[0.0, .05], facecolor='red', alpha=0.5)
+        plt.hist(eval('stepDur' + str(i) + 'I'), bins=20, range=[0.0, .05], facecolor='green', alpha=0.5)
+        plt.tick_params(axis='both', which='major', labelsize=10)
+        plt.show()
+    for i in range(1,7):
+        plt.hist(eval('swingDur' + str(i) + 'C'), bins=20, range=[0.0, .05], facecolor='blue', alpha=0.5)
+        plt.hist(eval('swingDur' + str(i) + 'M'), bins=20, range=[0.0, .05], facecolor='red', alpha=0.5)
+        plt.hist(eval('swingDur' + str(i) + 'I'), bins=20, range=[0.0, .05], facecolor='green', alpha=0.5)
+        plt.tick_params(axis='both', which='major', labelsize=10)
+        plt.show()
+    '''
+    #plt.hist(swingLen1C, bins=20, facecolor='green', alpha=0.5)
+
+    #Historgram Lengths
+    '''
+    for i in range(1,7):
+        plt.hist(eval('stepLen' + str(i) + 'C'), bins=20, range=[-2.5, 0.0], facecolor='blue', alpha=0.5)
+        plt.hist(eval('stepLen' + str(i) + 'M'), bins=20, range=[-2.5, 0.0], facecolor='red', alpha=0.5)
+        plt.hist(eval('stepLen' + str(i) + 'I'), bins=20, range=[-2.5, 0.0], facecolor='green', alpha=0.5)
+        plt.tick_params(axis='both', which='major', labelsize=10)
+        plt.show()
+    '''
+    for i in range(1,7):
+        plt.hist(eval('swingLen' + str(i) + 'C'), bins=20, range=[0.0, 3.0], facecolor='blue', alpha=0.5)
+        plt.hist(eval('swingLen' + str(i) + 'M'), bins=20, range=[0.0, 3.0], facecolor='red', alpha=0.5)
+        plt.hist(eval('swingLen' + str(i) + 'I'), bins=20, range=[0.0, 3.0], facecolor='green', alpha=0.5)
+        plt.tick_params(axis='both', which='major', labelsize=10)
+        plt.show()
 
 if __name__ == "__main__":
     saveDir = 'StableOrbit'
@@ -744,14 +961,31 @@ if __name__ == "__main__":
 
     LINE_LENGTH = 8
 
-    #step data
+    #Plots histograms of swing and step duration
+    chartrandStats('chartrand-pa-all-1e-4')
 
+    #Tarsii Locations in Cart Frame
+    '''
+    dataIDs = mo.treatments.query("Treatment == 'control'").index
+    mw.csvLoadData(dataIDs)
+    tarsusInCartFrame(mw.data, [0, 1, 2])
+    '''
+
+    #Finding stance transitions
+    '''
+    dataIDs = mo.treatments.query("Treatment == 'control'").index
+    mw.csvLoadData(dataIDs)
+    leftTransitions, rightTransitions = findStepTransitions(mw.data, dataIDs)
+    '''
+
+    #step data
+    '''
     dataIDs = mo.treatments.query("Treatment == 'control'").index
     template = mc.jsonLoadTemplate('templateControl')
     mw.csvLoadData(dataIDs)
     qListLeft, accelListLeft, stepDictLeft, stanceDictLeft, tarsusStepListLeft = createPWHamilInput(mw.data, [1], template, 0, 'left')
     qListRight,  accelListRight, stepDictRight, stanceDictRight, tarsusStepListRight = createPWHamilInput(mw.data, [1], template, 0, 'right')
-
+    '''
 
     #gait statistics
     '''

@@ -15,7 +15,6 @@ import scipy.optimize as spo
 from shrevz import util as shutil
 import lls
 
-
 def pandasToNumpy(obs, minIndex, maxIndex):
     return np.asarray(obs['x'][minIndex:maxIndex+1]), \
     np.asarray(obs['y'][minIndex:maxIndex+1]), \
@@ -283,7 +282,6 @@ def dataPipelinePlot(data, template):
     ax1.set_ylim(-0.25,0.25)
     ax1.plot(percentAxis[:plotSegment+3], x_f[:plotSegment+3], 'k--', lw=6.5, zorder='2')
 
-
     for i in range(1,2):
         ax1.plot((50,50),(-0.25,0.25), 'r--', linewidth=5, zorder='1')
 
@@ -292,7 +290,6 @@ def dataPipelinePlot(data, template):
 
     patches = [mpatches.Rectangle([50, -0.25], 50, 50, zorder=-5, facecolor='#F8F8FF', alpha=0.3, hatch='//')]
     ax1.add_patch(patches[0])
-
 
     #for i in [1,3,5,7]:
     #    ax1.fill_between((np.pi*i,np.pi*(i+1)), -0.25, 0.25, facecolor='#FFFF66 ', alpha=0.25, zorder='0')
@@ -320,12 +317,12 @@ def dataPipelinePlot(data, template):
 def LLSAnimation(template, data, observation):
     a = lls.LLS(mc.packConfiguration(template))
     #SteadyState
-    #a.anim(mw.observations[0][0:125], saveDir=os.path.join('2016SICB','animations'), label='ss-')
+    #a.anim(mw.observations[0][0:1000], saveDir=os.path.join('2016SICB','animations'), label='ss-')
     #Perturbation
-    a.animAccel(250,observation[250:311], saveDir=os.path.join('2016SICB','animations'), label='p-', accel=data['CartAcceleration'][250:311])
+    a.animAccel(262,observation[262:312], saveDir=os.path.join('2016SICB','animations'), label='p-', accel=data['CartAcceleration'][250:311])
 
 if __name__ == "__main__":
-    saveDir = '2016SICB'
+    saveDir = 'test'
 
     #index0 and index1 are tuples
 
@@ -342,12 +339,12 @@ if __name__ == "__main__":
 
     #Animations
     #Test - Perturbation
-    #LLSAnimation(copy.deepcopy(template), mw.data[1], mw.observations[1])
+    LLSAnimation(copy.deepcopy(template), mw.data[1], mw.observations[1])
     #StableOrbit
     #LLSAnimation(copy.deepcopy(template), mw.data[0], mw.observations[0])
 
     #DataPipeline
-    dataPipelinePlot(mw.data[0], template)
+    #dataPipelinePlot(mw.data[0], template)
 
     #Generate x,y,theta plots
     #Stride indices not offset!!!!

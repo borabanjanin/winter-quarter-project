@@ -10,7 +10,7 @@ import lls
 
 
 
-saveDir = 'Test'
+saveDir = 'StableOrbitHighRes'
 
 #index0 and index1 are tuples
 
@@ -25,19 +25,20 @@ mc = model.ModelConfiguration(mw)
 dataIDs = mo.treatments.query("Treatment == 'control'").index
 mw.csvLoadData(dataIDs)
 
-template = mc.jsonLoadTemplate("templateControl")
+template = mc.jsonLoadTemplate("templateInertia")
 
-#=template['dt'] = .002
-#template['to'] = 0.0
-#template['tf'] = 3.0
-#template['N'] = 250
+template['dt'] = .0001
+template['to'] = 0.0
+template['tf'] = 1.0
+template['N'] = 250
 
-#mw.runTrial('lls.LLS', template, varList, 0, 'noAccel')
+mw.runTrial('lls.LLS', template, varList, 0, 'noAccel')
+mw.saveTables()
 
-#mw.csvLoadObs([0])
-#print mw.observations[0]
+'''
 for i in dataIDs:
     print i
     mw.runTrial('lls.LLS', template, varList, dataID=i, accel='dataAccel')
 
 mw.saveTables()
+'''
