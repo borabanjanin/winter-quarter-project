@@ -39,7 +39,6 @@ def Aint(d, dt=.002):
 def loadTrialEstimates(label):
     return pickle.load(open(os.path.join(os.getcwd(),os.path.join('Chartrand','Trials'),label+'.p'), 'rb'))
 
-
 def dTrendTrials(trials, trialIDs, column):
     '''
         Input - Takes a dictionary of trials
@@ -982,6 +981,7 @@ if __name__ == '__main__':
         plotChartrand2('220306-chartrand-fs-inertia-1e-' + str(alpha), 'g', 'chartrand-fs-inertia-1e-' + str(alpha), 'kalman-fs-inertia', 'Chartrand')
     '''
 
+    '''
     #for alpha in range(10):
     for alpha in [3]:
         alphas = [1.*(10**-alpha), 1.*(10**-alpha)]
@@ -1004,3 +1004,4 @@ if __name__ == '__main__':
         mw.data = fl.tarsusInCartFrame(mw.data, dataIDs)
         template = mc.jsonLoadTemplate('templateInertia')
         generateEstimateTable('chartrandCart-pa-inertia-' + '1e-' + str(alpha), mw.data, dataIDs, samples, iterations, template, 'Chartrand', iterations=iterations, method='pa', alphas=alphas)
+    '''

@@ -483,7 +483,8 @@ class ModelWrapper(object):
     def csvLoadData(self, IDs):
         for ID in IDs:
             dataPath = os.path.join(os.getcwd(),'data','data-' + str(ID) + '.csv')
-            self.data[ID] = pd.read_csv(dataPath, sep='\t', index_col=0)
+            #self.data[ID] = pd.read_csv(dataPath, sep='\t', index_col=0)
+            self.data[ID] = pd.read_csv(dataPath)
         return IDs
 
     def csvReleaseData(self, IDs):
@@ -1240,7 +1241,10 @@ if __name__ == "__main__":
     mo = ModelOptimize(mw)
     mc2 = ModelConfiguration(mw)
 
+    '''
     kwargs = {'offset':283,'optMode':'pre', 'uptakeValues':['x','y','theta'], 'iterations': 1, 'stepSize': 0.01, 's': 0.0000001, 'gradientIterations':10}
 
     mo.runOptimize("lls.LLStoPuck","template",['x','y','theta'],[],[0],**kwargs)
     mw.saveTables()
+
+    '''
